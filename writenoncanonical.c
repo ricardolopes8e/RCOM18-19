@@ -16,16 +16,16 @@
 #define FALSE 0
 #define TRUE 1
 
-volatile int STOP=FALSE;
+volatile int STOP = FALSE;
 
 int main(int argc, char** argv)
 {
     int fd,c, res;
     struct termios oldtio,newtio;
-    char buf[255],end[255],line[255];
+    char buf[255],end[255], line[255];
     int i, sum = 0, speed = 0;
     
-    if ( (argc < 2) || 
+    if ( (argc < 2) ||
   	     ((strcmp("/dev/ttyS0", argv[1])!=0) && 
   	      (strcmp("/dev/ttyS1", argv[1])!=0) )) {
       printf("Usage:\tnserial SerialPort\n\tex: nserial /dev/ttyS1\n");
@@ -37,7 +37,6 @@ int main(int argc, char** argv)
     Open serial port device for reading and writing and not as controlling tty
     because we don't want to get killed if linenoise sends CTRL-C.
   */
-
 
     fd = open(argv[1], O_RDWR | O_NOCTTY );
     if (fd <0) {perror(argv[1]); exit(-1); }
@@ -58,14 +57,10 @@ int main(int argc, char** argv)
     newtio.c_cc[VTIME]    = 0;   /* inter-character timer unused */
     newtio.c_cc[VMIN]     = 5;   /* blocking read until 5 chars received */
 
-
-
   /* 
     VTIME e VMIN devem ser alterados de forma a proteger com um temporizador a 
     leitura do(s) próximo(s) caracter(es)
   */
-
-
 
     tcflush(fd, TCIOFLUSH);
 
@@ -76,57 +71,29 @@ int main(int argc, char** argv)
 
     printf("New termios structure set\n");
 
-    
+   
+   while (STOP == FALSE) {        /* loop for input */
+	gets(line);
+	res = write(fd, line, 255);
+	printf("Write string: %s:%d\n", line, res); 
 
-/*    for (i = 0; i < 255; i++) {
-      buf[i] = 'a';
-    }
-    */
-    /*testing*/
-  /*  buf[25] = '\n';
-    
-    
-    
-
-    res = write(fd,buf,255);*/
-  
-    char *line = (char *)malloc(512);
-
-        
-
-
-    gets(line);
-strcat(line, '\0');
-   res = write(fd,line,255); 
-    printf("%d bytes written\n", res);
-
-    memset(end,'z',255);
-    res = write(fd,end,255); 
-
-    printf("%d bytes written\n", res);
- 
-
-     while (STOP==FALSE) {       /* loop for input */
-      res = read(fd,buf,255);   /* returns after 5 chars have been input */
-      buf[res]=0;               /* so we can printf... */
-      printf(":%s:%d\n", buf, res);
-      if (buf[0]=='z') STOP=TRUE;
-    }
+	memset(buf, 0, 255);
+        res = read(fd, buf, 255);   /* returns after 5 chars have been input */
+        buf[res] = 0;               /* so we can printf... */
+        printf("String received: %s:%d\n", buf, res);
+        if (buf[0]=='z')
+       	   STOP = TRUE;
+   }
 
   /* 
     O ciclo FOR e as instruções seguintes devem ser alterados de modo a respeitar 
     o indicado no guião 
   */
 	
-
-   
     if ( tcsetattr(fd,TCSANOW,&oldtio) == -1) {
       perror("tcsetattr");
       exit(-1);
     }
-
-
-
 
     close(fd);
     return 0;
