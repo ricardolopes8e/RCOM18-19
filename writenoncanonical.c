@@ -15,6 +15,10 @@
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define FALSE 0
 #define TRUE 1
+#define FLAG          0x7E
+#define A             0x03
+#define SET           0x03
+#define UA_CTRL       0x07
 
 volatile int STOP=FALSE;
 
@@ -24,6 +28,16 @@ int main(int argc, char** argv)
     struct termios oldtio,newtio;
     char buf[255],end[255],line[255];
     int i, sum = 0, speed = 0;
+
+    unsigned char SET[5];
+
+    SET[0]=FLAG;
+    SET[1]=A;
+    SET[2]=0x03;
+
+    SET[3]=SET[1]^SET[2];/*calculate bcc*/
+
+    SET[4]=FLAG;
     
     if ( (argc < 2) || 
   	     ((strcmp("/dev/ttyS0", argv[1])!=0) && 
@@ -67,6 +81,7 @@ int main(int argc, char** argv)
 
 
 
+
     tcflush(fd, TCIOFLUSH);
 
     if ( tcsetattr(fd,TCSANOW,&newtio) == -1) {
@@ -77,47 +92,72 @@ int main(int argc, char** argv)
     printf("New termios structure set\n");
 
     
-
-/*    for (i = 0; i < 255; i++) {
-      buf[i] = 'a';
+    while () {
+      printf("Sending SET\n");
+      res = write(fd,SET,5);
+      printf("%d bytes written\n", res);
+      if(res==5){
+        printf("SET sent\n");
+        exit(0);
+      }
     }
-    */
-    /*testing*/
-  /*  buf[25] = '\n';
     
-    
-    
-
-    res = write(fd,buf,255);*/
-  
-    char *line = (char *)malloc(512);
+    sleep(3);
 
         
 
 
-    gets(line);
-strcat(line, '\0');
-   res = write(fd,line,255); 
-    printf("%d bytes written\n", res);
+    unsigned int state=0;
 
-    memset(end,'z',255);
-    res = write(fd,end,255); 
+    while (STOP==FALSE) {       /* loop for input */
+      res = read(fd,&buf[i],1);
+      //if (buf2[i]=='\0') STOP=TRUE;
+      switch (state) {
+        case 0:
+          if(buf[i]==FLAG)
+            state=1;//flag received
+          else
+            state=0;
+          break;
+        case 1:
+          if(buf[i]==A)
+            state=2;//address received
+          else if(buf[i]==FLAG)
+            state=1;
+          else
+            state=0;
+          break;
+        case 2:
+          if(buf[i]==0x07)//control UA received
+            state=3;
+          else if(buf[i]==FLAG)
+            state=1;
+          else
+            state=0;
+        case 3:
+          if(buf[i]==(A^buf[2]))//bcc received
+            state=4;
+          else if(buf[i]==FLAG)
+            state=1;
+          else
+            state=0;
+        case 4:
+          if(buf[i]==FLAG){//bcc received
+            exit(1);
+          }
+          else
+            state=0;
 
-    printf("%d bytes written\n", res);
- 
-
-     while (STOP==FALSE) {       /* loop for input */
-      res = read(fd,buf,255);   /* returns after 5 chars have been input */
-      buf[res]=0;               /* so we can printf... */
-      printf(":%s:%d\n", buf, res);
-      if (buf[0]=='z') STOP=TRUE;
+      }
+      i++;
     }
 
-  /* 
-    O ciclo FOR e as instruções seguintes devem ser alterados de modo a respeitar 
-    o indicado no guião 
-  */
-	
+    //printf("%c\n", buf[0]);
+    printf("UA received\n");
+
+
+
+      sleep(2);
 
    
     if ( tcsetattr(fd,TCSANOW,&oldtio) == -1) {

@@ -14,6 +14,10 @@
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define FALSE 0
 #define TRUE 1
+#define FLAG          0x7E
+#define A             0x03
+#define SET           0x03
+#define UA_CTRL       0x07
 
 volatile int STOP=FALSE;
 
@@ -36,9 +40,14 @@ int main(int argc, char** argv)
     because we don't want to get killed if linenoise sends CTRL-C.
   */
   
+
     
     fd = open(argv[1], O_RDWR | O_NOCTTY );
-    if (fd <0) {perror(argv[1]); exit(-1); }
+
+    if (fd <0) {
+      perror(argv[1]); 
+      exit(-1); 
+    }
 
     if ( tcgetattr(fd,&oldtio) == -1) { /* save current port settings */
       perror("tcgetattr");
@@ -52,7 +61,6 @@ int main(int argc, char** argv)
 
     /* set input mode (non-canonical, no echo,...) */
     newtio.c_lflag = 0;
-
     newtio.c_cc[VTIME]    = 0;   /* inter-character timer unused */
     newtio.c_cc[VMIN]     = 5;   /* blocking read until 5 chars received */
 
@@ -60,7 +68,7 @@ int main(int argc, char** argv)
 
   /* 
     VTIME e VMIN devem ser alterados de forma a proteger com um temporizador a 
-    leitura do(s) próximo(s) caracter(es)
+    leitura do(s) prÃ³ximo(s) caracter(es)
   */
 
 
@@ -74,32 +82,94 @@ int main(int argc, char** argv)
 
     printf("New termios structure set\n");
 
+    int count = 0;
 
     while (STOP == FALSE) {       /* loop for input */
-      res = read(fd, buf, 255);     /* returns after 5 chars have been input */
-      buf[res] = 0;               /* so we can printf... */
-      printf(":%s:%d\n", buf, res);
-      if (buf[0] == 0) {
-		printf("Received end of transmission\n");
-		STOP = TRUE;
-	  }
+      
+      res = read(fd, &buf[i], 1);                                      
+      printf("%c\n", buf[i]);
+
+      if (buf[i] == '\0') {
+		    printf("Received end of transmission\n");
+		    STOP = TRUE;
+	    }
     }
 
- 	printf("Transmit the string back\n");
-	int n = write(fd, buf, 255);
-	printf("wrote %d bytes of data\n", n);
+ 	  printf("Transmit the string back\n");
+    printf("%s\n", buf);
+	 
+	  res = write(fd, buf, i);
 	
+    int state = 0;
 
+    while (1) {
 
+      read(fd,&buf[i],1);
 
+      switch(state){
 
-  /* 
-    O ciclo WHILE deve ser alterado de modo a respeitar o indicado no guião 
-  */
+        case 0:
+          if (buf[i] == FLAG)
+            state = 1;
+          else
+            state = 0;
+          break;
+        case 1:
+          if(buf[i] == A)
+            state = 2;
+          else if(buf[i] == FLAG)
+            state = 1;
+          else
+            state = 0;
+          break;
+        case 2:
+          if(buf[i] == SET)
+            state = 3;
+          else if (buf[i] == FLAG)
+            state = 1;
+          else
+            state = 0;
+          break;
+        case 3:
+          if(buf[i] == A^SET)
+            state = 4;
+          else
+            state = 1;
+          case 4:
+            if(buf[i] == FLAG){
+              exit();
+            }
+            else
+              state = 0;
+            break;
+      }
+      i++;
+    }
 
+    unsigned char UA[5];
 
+    UA[0] = FLAG;
+    UA[1] = A;
+    UA[2] = UA_CTRL;
+    UA[3] = A^UA_CTRL;
+    UA[4] = FLAG;
+
+    while(){
+      printf("Sending UA...\n");
+      res = write(fd,UA,5);
+      printf("%d bytes written\n",res);
+
+      if(res == 5){
+        printf("UA done!\n");
+        exit(0);
+      }
+    }
 
     tcsetattr(fd,TCSANOW,&oldtio);
     close(fd);
     return 0;
-}
+
+  }
+
+
+
