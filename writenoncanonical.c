@@ -20,13 +20,13 @@
 #define SET           0x03
 #define UA_CTRL       0x07
 
-volatile int STOP=FALSE;
+volatile int STOP = FALSE;
 
 int main(int argc, char** argv)
 {
     int fd,c, res;
     struct termios oldtio,newtio;
-    char buf[255],end[255],line[255];
+    char buf[255],end[255], line[255];
     int i, sum = 0, speed = 0;
 
     unsigned char SET[5];
@@ -39,7 +39,7 @@ int main(int argc, char** argv)
 
     SET[4]=FLAG;
     
-    if ( (argc < 2) || 
+    if ( (argc < 2) ||
   	     ((strcmp("/dev/ttyS0", argv[1])!=0) && 
   	      (strcmp("/dev/ttyS1", argv[1])!=0) )) {
       printf("Usage:\tnserial SerialPort\n\tex: nserial /dev/ttyS1\n");
@@ -51,7 +51,6 @@ int main(int argc, char** argv)
     Open serial port device for reading and writing and not as controlling tty
     because we don't want to get killed if linenoise sends CTRL-C.
   */
-
 
     fd = open(argv[1], O_RDWR | O_NOCTTY );
     if (fd <0) {perror(argv[1]); exit(-1); }
@@ -72,11 +71,9 @@ int main(int argc, char** argv)
     newtio.c_cc[VTIME]    = 0;   /* inter-character timer unused */
     newtio.c_cc[VMIN]     = 5;   /* blocking read until 5 chars received */
 
-
-
   /* 
     VTIME e VMIN devem ser alterados de forma a proteger com um temporizador a 
-    leitura do(s) próximo(s) caracter(es)
+    leitura do(s) prï¿½ximo(s) caracter(es)
   */
 
 
@@ -164,9 +161,6 @@ int main(int argc, char** argv)
       perror("tcsetattr");
       exit(-1);
     }
-
-
-
 
     close(fd);
     return 0;
