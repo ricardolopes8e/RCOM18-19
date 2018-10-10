@@ -22,6 +22,99 @@
 
 volatile int STOP = FALSE;
 
+int writeSet(int fd,char *line)
+{
+  res = write(fd,line,255); 
+  printf("%d bytes written\n", res);
+  return 1;
+}
+
+int readSet(int fd)
+{
+   while (STOP==FALSE) {       /* loop for input */
+      res = read(fd,buf,255);   /* returns after 5 chars have been input */
+      buf[res]=0;               /* so we can printf... */
+      printf(":%s:%d\n", buf, res);
+      if (buf[0]=='z') STOP=TRUE;
+    }
+
+}
+
+void LLend()
+{
+  STOP = FALSE;
+}
+
+int llopen(int fd, int type)
+{
+  gets(line);
+    int tries=3;
+    while(tries>0)
+    {
+      tries--;
+      writeSet(fd,line);
+      alarm(3);
+      stop=0;
+      while (STOP==FALSE)
+      {
+        stop=readSet(fd);
+      }
+      if (STOP==TRUE)
+      {
+        alarm(0);
+        return 0;
+      }
+      
+    }
+    return -1;
+
+}
+
+
+int llclose(int fd)
+{
+  
+}
+
+int timeout ( int seconds )
+{
+    clock_t endwait;
+    endwait = clock () + seconds * CLOCKS_PER_SEC ;
+    while (clock() < endwait) {}
+
+    return  1;
+}
+
+
+
+int cyclestate(int fd)
+{
+  int finish=0;
+
+  while (finish == 0)
+  {
+    printf("Starting llopen()\n");
+    res = llopen(fd);
+
+    if (res == -1)
+    {
+      printf("llopen() failed\n");
+      return -1;
+    }
+    read = llwrite(fd);
+    if (read < fsize)
+    {
+      printf("read:%d fsize:%d\n",read,fsize);
+      continue;
+    }
+    else
+      finish = 1;
+  }
+}
+
+
+
+
 int main(int argc, char** argv)
 {
     int fd,c, res;
@@ -88,7 +181,9 @@ int main(int argc, char** argv)
 
     printf("New termios structure set\n");
 
-    
+    cyclestate(fd);
+
+  /*  
     while () {
       printf("Sending SET\n");
       res = write(fd,SET,5);
@@ -107,9 +202,9 @@ int main(int argc, char** argv)
     unsigned int state=0;
 
     while (STOP==FALSE) {       /* loop for input */
-      res = read(fd,&buf[i],1);
+    //  res = read(fd,&buf[i],1);
       //if (buf2[i]=='\0') STOP=TRUE;
-      switch (state) {
+/*      switch (state) {
         case 0:
           if(buf[i]==FLAG)
             state=1;//flag received
@@ -155,7 +250,7 @@ int main(int argc, char** argv)
 
 
       sleep(2);
-
+*/
    
     if ( tcsetattr(fd,TCSANOW,&oldtio) == -1) {
       perror("tcsetattr");
