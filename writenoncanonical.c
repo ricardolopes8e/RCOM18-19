@@ -32,6 +32,7 @@
 #define C_RCV 3
 #define BCC_OK 4
 #define STOP_STATE 5
+#define DISC_C 0x0B
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
@@ -228,6 +229,26 @@ int llopen (int fd) {
       return TRUE;
     }
 */
+}
+
+void llclose(int fd){
+  char c;
+  int state;
+
+  read(fd,&c,1);
+  state = DISC_C;
+  state_machine_UA(&state,&c);
+
+  send_control_message(fd, state);
+
+  read(fd,&c,1);
+  state = UA_C;
+  state_machine_UA(&state,&c);
+
+  tcsetattr(fd, TCSANOW, &oldtio);
+
+
+
 }
 int main(int argc, char** argv) {
     int fd,c, res;
