@@ -1,4 +1,5 @@
 /*Non-Canonical Input Processing*/
+/* Transmitter */
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -6,133 +7,234 @@
 #include <termios.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
-#include <fcntl.h>
 #include <unistd.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <signal.h>
 
 #define BAUDRATE B38400
 #define MODEMDEVICE "/dev/ttyS1"
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define FALSE 0
 #define TRUE 1
-#define FLAG          0x7E
-#define A             0x03
-#define SET           0x03
-#define UA_CTRL       0x07
+#define ERR -1
+#define FLAG 126 /* 0x7E */
+#define A 3 /* 0x03 */
+#define SET_C 3 /* 0x03 */
+#define UA_C 7 /* 0x07 */
+#define SET_SIZE 5
+#define UA_SIZE 5
+#define MAX_ALARMS 3
+#define TIMEOUT 3
+#define START 0
+#define FLAG_RCV 1
+#define A_RCV 2
+#define C_RCV 3
+#define BCC_OK 4
+#define STOP_STATE 5
 
 volatile int STOP = FALSE;
+struct termios oldtio, newtio;
+int flag_alarm_active, count_alarm, received, end_of_UA, contor;
+char UA_received[UA_SIZE + 1];
 
-int writeSet(int fd,char *line)
-{
-  res = write(fd,line,255); 
-  printf("%d bytes written\n", res);
-  return 1;
-}
-
-int readSet(int fd)
-{
-   while (STOP==FALSE) {       /* loop for input */
-      res = read(fd,buf,255);   /* returns after 5 chars have been input */
-      buf[res]=0;               /* so we can printf... */
-      printf(":%s:%d\n", buf, res);
-      if (buf[0]=='z') STOP=TRUE;
-    }
-
-}
-
-void LLend()
-{
-  STOP = FALSE;
-}
-
-int llopen(int fd, int type)
-{
-  gets(line);
-    int tries=3;
-    while(tries>0)
-    {
-      tries--;
-      writeSet(fd,line);
-      alarm(3);
-      stop=0;
-      while (STOP==FALSE)
-      {
-        stop=readSet(fd);
-      }
-      if (STOP==TRUE)
-      {
-        alarm(0);
-        return 0;
-      }
-      
-    }
-    return -1;
-
-}
-
-
-int llclose(int fd)
-{
-  
-}
-
-int timeout ( int seconds )
-{
-    clock_t endwait;
-    endwait = clock () + seconds * CLOCKS_PER_SEC ;
-    while (clock() < endwait) {}
-
-    return  1;
-}
-
-
-
-int cyclestate(int fd)
-{
-  int finish=0;
-
-  while (finish == 0)
-  {
-    printf("Starting llopen()\n");
-    res = llopen(fd);
-
-    if (res == -1)
-    {
-      printf("llopen() failed\n");
-      return -1;
-    }
-    read = llwrite(fd);
-    if (read < fsize)
-    {
-      printf("read:%d fsize:%d\n",read,fsize);
-      continue;
-    }
-    else
-      finish = 1;
+void print_hexa(char *str) {
+  int j;
+  for (j = 0; j < strlen(str); j++) {
+    printf("%0xh ", str[j]);  
   }
+  printf("\n");
 }
 
+/* listens to the alarm */
+void alarm_handler() {
+  printf("alarm #%d\n3 sec expired; resend SET\n", count_alarm);
+  flag_alarm_active = TRUE;
+  count_alarm++;
+}
 
+void disable_alarm() {
+  flag_alarm_active = 0;
+  count_alarm = 0;
+  alarm(0);
+}
 
+/* builds and sends to fd tge SET control message */
+void send_control_message(int fd, int C) {
+  unsigned char SET_message[SET_SIZE];
 
-int main(int argc, char** argv)
-{
-    int fd,c, res;
-    struct termios oldtio,newtio;
-    char buf[255],end[255], line[255];
-    int i, sum = 0, speed = 0;
+  SET_message[0] = FLAG;
+  SET_message[1] = A;
+  SET_message[2] = C;
+  SET_message[3] = A ^ C;
+  SET_message[4] = FLAG;
 
-    unsigned char SET[5];
+  printf("Transmit: ");
+  print_hexa(SET_message);
+  write(fd, SET_message, SET_SIZE);
+}
 
-    SET[0]=FLAG;
-    SET[1]=A;
-    SET[2]=0x03;
+void state_machine_UA(int *state, unsigned char *c) {
+printf("SSSSSSSSSTATE: %d",*state);
+  switch (*state) {
+    case START:
+      if (*c == FLAG) {
+        *state = FLAG_RCV; /* transition FLAG_RCV */
+        UA_received[contor++] = *c;
+      }
+      break;
+    case FLAG_RCV:
+      /* A_RCV */
+      if (*c == A) {
+        *state = A_RCV;
+        UA_received[contor++] = *c;
+      }
+      else {
+        if (*c == FLAG)
+          *state = FLAG_RCV;
+        else {
+          memset(UA_received, 0, UA_SIZE + 1);
+          *state = START;
+        }
+      }
+      break;
+    case A_RCV:
+      if (*c == UA_C) {
+        *state = C_RCV; /* transition to C_RCV */
+        UA_received[contor++] = *c;
+      }
+      else {
+        if (*c == FLAG)
+          *state = FLAG_RCV;
+        else {
+          memset(UA_received, 0, UA_SIZE + 1);
+          *state = START;
+        }
+      }
+      break;
 
-    SET[3]=SET[1]^SET[2];/*calculate bcc*/
+    case C_RCV:
+	printf("******************* %h",*c);
+	printf("--------------------------------%h",UA_C ^A);
 
-    SET[4]=FLAG;
+      if (*c == UA_C ^ A) {
+        *state = BCC_OK;
+        UA_received[contor++] = *c;
+      }
+      else {
+        memset(UA_received, 0, UA_SIZE + 1);
+        *state = START;
+      }
+      break;
     
-    if ( (argc < 2) ||
+    case BCC_OK:
+      if (*c == FLAG) {
+        UA_received[contor++] = *c;
+        end_of_UA = TRUE;
+        disable_alarm();
+        printf("UA received: ");
+        print_hexa(UA_received);
+      }
+      else {
+        memset(UA_received, 0, UA_SIZE + 1);
+        *state = START;
+      }
+      break;
+    }
+}
+int llopen (int fd) {
+
+    char *buf = (char*) malloc((UA_SIZE + 1) * sizeof(char));
+    int i = 0, state;
+    char c;
+
+    if (tcgetattr(fd, &oldtio) == ERR) { /* save current port settings */
+      perror("tcgetattr error");
+      exit(ERR);
+    }
+
+    bzero(&newtio, sizeof(newtio));
+    newtio.c_cflag = BAUDRATE | CS8 | CLOCAL | CREAD;
+    newtio.c_iflag = IGNPAR;
+    newtio.c_oflag = 0;
+
+    /* set input mode (non-canonical, no echo,...) */
+    newtio.c_lflag = 0;
+
+    newtio.c_cc[VTIME] = 1;   /* inter-character timer value */
+    newtio.c_cc[VMIN]  = 0;   /* The read will be satisfied if a single
+                              character is read, or TIME is exceeded
+                              (t = TIME *0.1 s). If TIME is exceeded,
+                              no character will be returned. */
+    tcflush(fd, TCIOFLUSH);
+
+    if (tcsetattr(fd, TCSANOW, &newtio) == ERR) {
+      perror("tcsetattr error");
+      exit(ERR);
+    }
+
+    printf("New termios structure set\n");
+
+    /**********so far, code from moodle**********/
+    /* Sends the SET control message, waits for UA for 3 seconds.
+      If it does not receive UA, it resends SET, this operation being
+      repeated for 3 times */
+
+    flag_alarm_active = 1;
+    while (count_alarm < MAX_ALARMS && flag_alarm_active) {
+      send_control_message(fd, SET_C); /* send SET */
+      alarm(TIMEOUT);
+      flag_alarm_active = 0;
+      state = START;
+
+      while (!end_of_UA && !flag_alarm_active) {
+      	read(fd, &c, 1);
+	buf[i++] = c;
+	printf("%\n", c);
+        state_machine_UA(&state, &c);
+      }
+    }
+
+    printf("flag alarm %d\n", flag_alarm_active);
+    printf("sum %d\n", count_alarm);
+
+    if (count_alarm == MAX_ALARMS && flag_alarm_active) {
+      return FALSE;
+    } else {
+      disable_alarm();
+      return TRUE;
+    }
+
+/*
+    do {
+      send_control_message(fd, SET_C); /* send SET
+      alarm(TIMEOUT);
+      flag_alarm_active = 0;
+      state = START;
+
+      while (!end_of_UA && !flag_alarm_active) {
+        read(fd, &c, 1);	
+        state_machine_UA(&state, &c);
+      }
+    } while (flag_alarm_active && count_alarm < MAX_ALARMS);
+
+    printf("flag alarm %d\n", flag_alarm_active);
+    printf("sum %d\n", count_alarm);
+
+    if (flag_alarm_active && count_alarm == MAX_ALARMS)
+      return FALSE;
+    else {
+      disable_alarm();
+      return TRUE;
+    }
+*/
+}
+int main(int argc, char** argv) {
+    int fd,c, res;
+    char buf[255];
+    int i, sum = 0, speed = 0;
+    
+    if ( (argc < 2) || 
   	     ((strcmp("/dev/ttyS0", argv[1])!=0) && 
   	      (strcmp("/dev/ttyS1", argv[1])!=0) )) {
       printf("Usage:\tnserial SerialPort\n\tex: nserial /dev/ttyS1\n");
@@ -145,118 +247,38 @@ int main(int argc, char** argv)
     because we don't want to get killed if linenoise sends CTRL-C.
   */
 
-    fd = open(argv[1], O_RDWR | O_NOCTTY );
-    if (fd <0) {perror(argv[1]); exit(-1); }
+  fd = open(argv[1], O_RDWR | O_NOCTTY );
+  if (fd < 0) {
+    perror(argv[1]);
+    exit(ERR);
+  }
 
-    if ( tcgetattr(fd,&oldtio) == -1) { /* save current port settings */
-      perror("tcgetattr");
-      exit(-1);
+  signal(SIGALRM, alarm_handler);  /* link SIGALRM with alarm_handler function */
+  llopen(fd);
+
+  /*
+
+    /*testing
+    buf[25] = '\n';
+    
+    res = write(fd,buf,255);   
+    printf("%d bytes written\n", res);
+ 
+    for (i = 0; i < 255; i++) {
+      buf[i] = 'a';
     }
-
-    bzero(&newtio, sizeof(newtio));
-    newtio.c_cflag = BAUDRATE | CS8 | CLOCAL | CREAD;
-    newtio.c_iflag = IGNPAR;
-    newtio.c_oflag = 0;
-
-    /* set input mode (non-canonical, no echo,...) */
-    newtio.c_lflag = 0;
-
-    newtio.c_cc[VTIME]    = 0;   /* inter-character timer unused */
-    newtio.c_cc[VMIN]     = 5;   /* blocking read until 5 chars received */
 
   /* 
-    VTIME e VMIN devem ser alterados de forma a proteger com um temporizador a 
-    leitura do(s) prï¿½ximo(s) caracter(es)
-  */
+    O ciclo FOR e as instruções seguintes devem ser alterados de modo a respeitar 
+    o indicado no guião 
+  
 
+*/ 
+  if (tcsetattr(fd, TCSANOW, &oldtio) == ERR) {
+    perror("tcsetattr");
+    exit(ERR);
+  }
 
-
-
-    tcflush(fd, TCIOFLUSH);
-
-    if ( tcsetattr(fd,TCSANOW,&newtio) == -1) {
-      perror("tcsetattr");
-      exit(-1);
-    }
-
-    printf("New termios structure set\n");
-
-    cyclestate(fd);
-
-  /*  
-    while () {
-      printf("Sending SET\n");
-      res = write(fd,SET,5);
-      printf("%d bytes written\n", res);
-      if(res==5){
-        printf("SET sent\n");
-        exit(0);
-      }
-    }
-    
-    sleep(3);
-
-        
-
-
-    unsigned int state=0;
-
-    while (STOP==FALSE) {       /* loop for input */
-    //  res = read(fd,&buf[i],1);
-      //if (buf2[i]=='\0') STOP=TRUE;
-/*      switch (state) {
-        case 0:
-          if(buf[i]==FLAG)
-            state=1;//flag received
-          else
-            state=0;
-          break;
-        case 1:
-          if(buf[i]==A)
-            state=2;//address received
-          else if(buf[i]==FLAG)
-            state=1;
-          else
-            state=0;
-          break;
-        case 2:
-          if(buf[i]==0x07)//control UA received
-            state=3;
-          else if(buf[i]==FLAG)
-            state=1;
-          else
-            state=0;
-        case 3:
-          if(buf[i]==(A^buf[2]))//bcc received
-            state=4;
-          else if(buf[i]==FLAG)
-            state=1;
-          else
-            state=0;
-        case 4:
-          if(buf[i]==FLAG){//bcc received
-            exit(1);
-          }
-          else
-            state=0;
-
-      }
-      i++;
-    }
-
-    //printf("%c\n", buf[0]);
-    printf("UA received\n");
-
-
-
-      sleep(2);
-*/
-   
-    if ( tcsetattr(fd,TCSANOW,&oldtio) == -1) {
-      perror("tcsetattr");
-      exit(-1);
-    }
-
-    close(fd);
-    return 0;
+  close(fd);
+  return 0;
 }
