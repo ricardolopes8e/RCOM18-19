@@ -16,6 +16,7 @@
 #define A 3 /* 0x03 */
 #define SET_C 3 /* 0x03 */
 #define UA_C 7 /* 0x07 */
+#define DISC_C 11 /* 0x0B */
 #define FALSE 0
 #define TRUE 1
 #define ERR -1
@@ -27,6 +28,7 @@
 #define STOP_STATE 5
 #define UA_SIZE 5
 #define SET_SIZE 5
+
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
@@ -173,6 +175,24 @@ int llopen(int fd) {
       send_control_message(fd, UA_C);
       printf("Sent UA\n");
     }
+}
+
+void llclose(int fd){
+  char c;
+  int state;
+
+  read(fd,&c,1);
+  state = DISC_C;
+  state_machine_UA(&state,&c);
+
+  send_control_message(fd, state);
+
+  read(fd,&c,1);
+  state = UA_C;
+  state_machine_UA(&state,&c);
+
+  tcsetattr(fd, TCSANOW, &oldtio);
+
 }
 
 int main(int argc, char** argv) {

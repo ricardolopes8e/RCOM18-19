@@ -22,6 +22,7 @@
 #define A 3 /* 0x03 */
 #define SET_C 3 /* 0x03 */
 #define UA_C 7 /* 0x07 */
+#define DISC_C 11 /* 0x0B */
 #define SET_SIZE 5
 #define UA_SIZE 5
 #define MAX_ALARMS 3
@@ -32,7 +33,7 @@
 #define C_RCV 3
 #define BCC_OK 4
 #define STOP_STATE 5
-#define DISC_C 0x0B
+
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
@@ -235,21 +236,25 @@ void llclose(int fd){
   char c;
   int state;
 
-  read(fd,&c,1);
   state = DISC_C;
-  state_machine_UA(&state,&c);
-
-  send_control_message(fd, state);
+  send_control_message(fd,state);
 
   read(fd,&c,1);
+  state = START;
+
+  while(state != DISC_C){
+    state_machine_UA(&state,&c);
+  }
+
   state = UA_C;
-  state_machine_UA(&state,&c);
 
-  tcsetattr(fd, TCSANOW, &oldtio);
+  send_control_message(fd,state);
 
-
+  tcsetattr(fd,TCSANOW,&oldtio);
+  
 
 }
+
 int main(int argc, char** argv) {
     int fd,c, res;
     char buf[255];
