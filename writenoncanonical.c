@@ -33,6 +33,15 @@
 #define C_RCV 3
 #define BCC_OK 4
 #define STOP_STATE 5
+#define C0 0
+#define C20 32 /* 0x20 */
+#define ESC 0x7D
+#define ESC_AFTER 0x5E
+#define ESC_ESC 0x5D
+#define RR0 0x05
+#define RR1 0x85
+#define REJ0 0x01
+#define REJ1 0x81
 
 
 volatile int STOP = FALSE;
@@ -232,6 +241,72 @@ int llopen (int fd) {
 */
 }
 
+unsigned char readCMessage(int fd){
+  int step = 0;
+  unsigned char c;
+  unsigned char returnValue;
+
+  while (!flag_alarm_active && step != 5)
+  {
+    read(fd, &c, 1);
+    switch (step)
+    {
+    //FLAG
+    case 0:
+      if (c == FLAG)
+        step = 1;
+      break;
+    //A
+    case 1:
+      if (c == A)
+        step = 2;
+      else
+      {
+        if (c == FLAG)
+          step = 1;
+        else
+          step = 0;
+      }
+      break;
+    //Control
+    case 2:
+      if (c == RR0 || c == RR1 || c == REJ0 || c == REJ1 || c == DISC)
+      {
+        returnValue = c;
+        step = 3;
+      }
+      else
+      {
+        if (c == FLAG)
+          step = 1;
+        else
+          step = 0;
+      }
+      break;
+    //BCC2
+    case 3:
+      if (c == (A ^ C))
+        step = 4;
+      else
+        step = 0;
+      break;
+
+    case 4:
+      if (c == FLAG)
+      {
+        alarm(0);
+        step = 5;
+        return C;
+      }
+      else
+        step = 0;
+      break;
+    }
+  }
+  return 0x00;
+
+}
+
 void llclose(int fd){
   char c;
   int state;
@@ -251,7 +326,103 @@ void llclose(int fd){
   send_control_message(fd,state);
 
   tcsetattr(fd,TCSANOW,&oldtio);
-  
+}
+
+
+int llwrite(int fd, char * buffer, int length){
+
+  unsigned char *messageToSend = (unsigned char *) malloc((size + 6) * sizeof(unsigned char));
+  messageToSendSize = length + 6;
+
+
+  //calculate BCC2
+  unsigned char BCC2 = buffer[0];
+  unsigned char BCC2Stuffed;
+  int BCC2Size = 1;
+  for(int k = 1; i < length; k++){
+    BCC2 ^= buffer[i];
+  }
+  if(BCC2 == FLAG){
+    BCC2Stuffed = (unsigned char *) malloc(2*sizeof(unsigned char *));
+    BCC2Stuffed[0] = ESC;
+    BCC2Stuffed[1] = ESC_AFTER;
+    BCC2Size = 2;
+
+  } else if (BCC2 == ESC){
+    BCC2Stuffed = (unsigned char *) malloc(2*sizeof(unsigned char *));
+    BCC2Stuffed[0] = ESC;
+    BCC2Stuffed[1] = ESC_ESC;
+    BCC2Size = 2;
+  }
+
+  //Generate Message
+  messageToSend[0] = FLAG;
+  messageToSend[1] = A;
+
+  if(serie == 0){
+    messageToSend[2] = C0;
+  } else {
+    messageToSend[2] = C20;
+  }
+
+  messageToSend[3] = (messageToSend[1] ^ messageToSend[2]);
+
+
+  int n = 4;
+  for (int i = 0; i < size; i++){
+    if(buffer[i] == FLAG){
+      messageToSend = (unsigned char *)realloc(messageToSend,++messageToSendSize);
+      messageToSend[n] = ESC;
+      messageToSend[n + 1] = ESC_AFTER;
+      j = j + 2;
+
+    } else if (buffer[i] = ESC) {
+      messageToSend = (unsigned char *)realloc(messageToSend,++messageToSendSize);
+      messageToSend[n] = ESC;
+      messageToSend[n + 1] = ESC_ESC;
+
+    } else {
+      messageToSend[n] = buffer[i];
+      n++;
+    }
+  }
+
+  if (BCC2Size == 1){
+    messageToSend[n] == BCC2;
+  } else {
+    messageToSend = (unsigned char *)realloc(messageToSend,++messageToSendSize);
+    messageToSend[n] = BCC2Stuffed[0];
+    messageToSend[n+1] = BCC2Stuffed[1];
+    j++;
+  }
+
+  messageToSend[n + 1] = FLAG;
+
+
+  //Send Message after generating it
+  int rejected = 0;
+  do{
+
+    write(fd,*messageToSend, messageToSendSize);
+
+    flag_alarm_active = FALSE;
+    alarm(TIMEOUT);
+
+    unsigned char C = readCMessage(fd);
+
+    if((C == RR1 && serie == 0) || (C == RR0 && serie == 1)){
+      printf("Received RR %x, serie = %d\n", C,serie);
+      rejected = 0;
+      count_alarm = 0;
+      if(serie == 0){serie = 1;} else {serie = 0;}
+      alarm(0);
+    } else if (C == REJ0 || C == REJ1){
+      rejected = 1;
+      printf("Received rejection %x, serie=%d\n", C, serie);
+    }
+  } while ((flag_alarm_active && count_alarm < MAX_ALARMS) || rejected);
+
+  return TRUE;
 
 }
 
