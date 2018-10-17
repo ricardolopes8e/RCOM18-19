@@ -42,7 +42,7 @@ void print_hexa(char *str) {
 }
 
 /* state machine */
-int read_control_message(int fd) {
+int read_control_message(int fd, int control_character) {
   int state = START;
   char *buffer = (char*) malloc((SET_SIZE + 1) * sizeof(char));
   char c;
@@ -78,7 +78,7 @@ int read_control_message(int fd) {
 
       case A_RCV:
         /* C_RCV */
-        if (c == SET_C) {
+        if (c == control_character) {
           state = C_RCV;
           buffer[i++] = c;
         }
@@ -93,7 +93,7 @@ int read_control_message(int fd) {
 
       case C_RCV:
         /* BCC_OK */
-        if (c == (A ^ SET_C)) {
+        if (c == (A ^ control_character)) {
           state = BCC_OK;
           buffer[i++] = c;
         }
@@ -170,29 +170,25 @@ int llopen(int fd) {
 
     /*********** until here the code is provided on moodle ***********/
     
-    if (read_control_message(fd)) {
+    if (read_control_message(fd, SET_C)) {
       printf("Received SET\n");
       send_control_message(fd, UA_C);
       printf("Sent UA\n");
     }
 }
 
-void llclose(int fd){
-  char c;
+void llclose(int fd) {
   int state;
 
-  read(fd,&c,1);
   state = DISC_C;
-  state_machine_UA(&state,&c);
+  read_control_message(fd, state);
 
   send_control_message(fd, state);
 
-  read(fd,&c,1);
   state = UA_C;
-  state_machine_UA(&state,&c);
+  read_control_message(fd, state);
 
   tcsetattr(fd, TCSANOW, &oldtio);
-
 }
 
 int main(int argc, char** argv) {
