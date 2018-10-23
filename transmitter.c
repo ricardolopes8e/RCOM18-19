@@ -11,46 +11,9 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <signal.h>
-
-
-#define BAUDRATE B38400
-#define MODEMDEVICE "/dev/ttyS1"
-#define _POSIX_SOURCE 1 /* POSIX compliant source */
-#define FALSE 0
-#define TRUE 1
-#define ERR -1
-#define FLAG 126 /* 0x7E */
-#define A 3 /* 0x03 */
-#define SET_C 3 /* 0x03 */
-#define UA_C 7 /* 0x07 */
-#define SET_SIZE 5
-#define UA_SIZE 5
-#define MAX_ALARMS 3
-#define MAX_REJECTIONS 3
-#define TIMEOUT 3
-#define START 0
-#define FLAG_RCV 1
-#define A_RCV 2
-#define C_RCV 3
-#define BCC_OK 4
-#define STOP_STATE 5
-#define C_0 0x00
-#define C_1 0x40
-#define ESC 0x7D
-#define ESC_AFTER 0x5E
-#define ESC_ESC 0x5D
-#define RR_0 0x05
-#define RR_1 0x85
-#define REJ_0 0x01
-#define REJ_1 0x81
-#define DISC 0x0B
-#define START_TRANSMITION 1
-#define END_TRANSMITION 3
-#define FILE_SIZE_CODE 0
-#define FILE_NAME_CODE 1
-#define L1 4
-#define L2 4
-#define BUF_SIZE 4
+#include "writer.h"
+#include <errno.h>
+#include <math.h>
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
@@ -143,10 +106,6 @@ void state_machine_UA(int *state, unsigned char *c) {
       break;
 
     case C_RCV:
-	printf("C_RCV\n");
-	printf("******************* %0Xh",*c);
-	printf("--------------------------------%0Xh",UA_C ^A);
-
       if (*c == UA_C ^ A) {
         *state = BCC_OK;
         UA_received[contor++] = *c;
@@ -158,7 +117,6 @@ void state_machine_UA(int *state, unsigned char *c) {
       break;
     
     case BCC_OK:
-	printf("BCC_OK\n");
       if (*c == FLAG) {
         UA_received[contor++] = *c;
         end_of_UA = TRUE;
@@ -175,65 +133,65 @@ void state_machine_UA(int *state, unsigned char *c) {
 }
 int llopen (int fd) {
 
-    char *buf = (char*) malloc((UA_SIZE + 1) * sizeof(char));
-    int i = 0, state;
-    char c;
+  char *buf = (char*) malloc((UA_SIZE + 1) * sizeof(char));
+  int i = 0, state;
+  char c;
 
-    if (tcgetattr(fd, &oldtio) == ERR) { /* save current port settings */
-      perror("tcgetattr error");
-      exit(ERR);
+  if (tcgetattr(fd, &oldtio) == ERR) { /* save current port settings */
+    perror("tcgetattr error");
+    exit(ERR);
+  }
+
+  bzero(&newtio, sizeof(newtio));
+  newtio.c_cflag = BAUDRATE | CS8 | CLOCAL | CREAD;
+  newtio.c_iflag = IGNPAR;
+  newtio.c_oflag = 0;
+
+  /* set input mode (non-canonical, no echo,...) */
+  newtio.c_lflag = 0;
+
+  newtio.c_cc[VTIME] = 1;   /* inter-character timer value */
+  newtio.c_cc[VMIN]  = 0;   /* The read will be satisfied if a single
+                            character is read, or TIME is exceeded
+                            (t = TIME *0.1 s). If TIME is exceeded,
+                            no character will be returned. */
+  tcflush(fd, TCIOFLUSH);
+
+  if (tcsetattr(fd, TCSANOW, &newtio) == ERR) {
+    perror("tcsetattr error");
+    exit(ERR);
+  }
+
+  printf("New termios structure set\n");
+
+  /**********so far, code from moodle**********/
+  /* Sends the SET control message, waits for UA for 3 seconds.
+    If it does not receive UA, it resends SET, this operation being
+    repeated for 3 times */
+  
+  flag_alarm_active = TRUE;
+  while (count_alarm < MAX_ALARMS && flag_alarm_active) {
+    send_control_message(fd, SET_C); /* send SET */
+    alarm(TIMEOUT);
+    flag_alarm_active = FALSE;
+    state = START;
+
+    while (!end_of_UA && !flag_alarm_active) {
+    	read(fd, &c, 1);
+      printf("We read %c\n", c);
+	    state_machine_UA(&state, &c);
     }
+  }
 
-    bzero(&newtio, sizeof(newtio));
-    newtio.c_cflag = BAUDRATE | CS8 | CLOCAL | CREAD;
-    newtio.c_iflag = IGNPAR;
-    newtio.c_oflag = 0;
+  printf("flag alarm %d\n", flag_alarm_active);
+  printf("sum %d\n", count_alarm);
 
-    /* set input mode (non-canonical, no echo,...) */
-    newtio.c_lflag = 0;
-
-    newtio.c_cc[VTIME] = 1;   /* inter-character timer value */
-    newtio.c_cc[VMIN]  = 0;   /* The read will be satisfied if a single
-                              character is read, or TIME is exceeded
-                              (t = TIME *0.1 s). If TIME is exceeded,
-                              no character will be returned. */
-    tcflush(fd, TCIOFLUSH);
-
-    if (tcsetattr(fd, TCSANOW, &newtio) == ERR) {
-      perror("tcsetattr error");
-      exit(ERR);
-    }
-
-    printf("New termios structure set\n");
-
-    /**********so far, code from moodle**********/
-    /* Sends the SET control message, waits for UA for 3 seconds.
-      If it does not receive UA, it resends SET, this operation being
-      repeated for 3 times */
-    
-    flag_alarm_active = 1;
-    while (count_alarm < MAX_ALARMS && flag_alarm_active) {
-      send_control_message(fd, SET_C); /* send SET */
-      alarm(TIMEOUT);
-      flag_alarm_active = 0;
-      state = START;
-
-      while (!end_of_UA && !flag_alarm_active) {
-      	read(fd, &c, 1);
-        printf("We read %c\n", c);
-		    state_machine_UA(&state, &c);
-      }
-    }
-
-    printf("flag alarm %d\n", flag_alarm_active);
-    printf("sum %d\n", count_alarm);
-
-    if (count_alarm == MAX_ALARMS && flag_alarm_active) {
-      return FALSE;
-    } else {
-      disable_alarm();
-      return TRUE;
-    }
+  if (count_alarm == MAX_ALARMS && flag_alarm_active) {
+    return FALSE;
+  } else {
+    disable_alarm();
+    return TRUE;
+  }
     
 /*
     do {
@@ -258,7 +216,9 @@ int llopen (int fd) {
     */
 
 }
-
+/* reads control message and returns the control character in the
+control message; also, uses the state machine to check if the message
+is correctly received */
 int read_control_message(int fd) {
   int step = START;
   unsigned char c;
@@ -266,7 +226,6 @@ int read_control_message(int fd) {
 
   while (!flag_alarm_active && step != STOP_STATE) {
     read(fd, &c, 1);
-    //printf("C in read_control_message: %d \n", c);
     switch (step) {
     // FLAG
     case START:
@@ -287,7 +246,7 @@ int read_control_message(int fd) {
     case A_RCV:
       if (c == RR_0 || c == RR_1 || c == REJ_0 || c == REJ_1 || c == DISC) {
         returnValue = c;
-        //printf("C in read_control_message 2: %d \n", returnValue);
+        // printf("C in read_control_message 2: %d \n", returnValue);
         step = C_RCV;
       } else if (c == FLAG) {
           step = FLAG_RCV;
@@ -316,6 +275,7 @@ int read_control_message(int fd) {
   return returnValue;
 }
 
+/* closes the connection between sender and receiver */
 void llclose(int fd){
   char c;
   int control_char, state;
@@ -344,24 +304,106 @@ void llclose(int fd){
   printf("Sender terminated!\n.");
 }
 
+/* gets the file size in bytes if a given file */
+off_t fsize(const char *filename) {
+    struct stat st;
 
+    if (stat(filename, &st) == 0)
+        return st.st_size;
 
-int llwrite(int fd, char *buffer, int length) {
+    fprintf(stderr, "Cannot determine size of %s: %s\n",
+            filename, strerror(errno));
 
-  char *message_to_send = (char*) malloc((length + 6) * sizeof(char));
-  int message_to_send_size, i, seq_num = 0, rejected = FALSE, rejected_count = 0;
+    return -1;
+}
 
-  message_to_send_size = length + 6;
+/* create a control packet with the structure C T1 L1 V1 T2 L2 V2 */
+/* when called, use:
+
+  char file_name[FILE_NAME_SIZE];
+  char *control_packet = (char*) malloc(CONTROL_MESSAGE_LEN * sizeof(char));
+
+  strcpy(file_name, "<file_name>");
+
+  printf("File size of %s is %li bytes\n", file_name, fsize(file_name));
+  create_control_field(control_packet, 1, fsize(file_name), file_name);
+  
+  */
+int create_control_packet(char *control_packet, int packet_type,
+                          int file_size, char* file_name) {
+  char buffer[BUF_SIZE];
+  int bytes_written = 0;
+  double L1;
+  long L2;
+
+  /* C - packet_type, start or end */
+  memset(buffer, 0, BUF_SIZE);
+  sprintf(buffer, "%d", packet_type);
+  strcat(control_packet, buffer);
+
+  printf("control_packet: %s\n", control_packet);
+  
+  /* file size parameter code */
+  memset(buffer, 0, BUF_SIZE);
+  sprintf(buffer, "%d", FILE_SIZE_CODE);
+  strcat(control_packet, buffer);
+
+  printf("control_packet: %s\n", control_packet);
+
+  /* file_size parameter lenght in bytes */
+  memset(buffer, 0, BUF_SIZE);
+  L1 = floor(log10(abs(file_size))) + 1; /* size in octets of file_size */
+  sprintf(buffer, "%0.0f", L1);
+  strcat(control_packet, buffer);
+  
+  printf("control_packet: %s\n", control_packet);
+
+  /* file_size parameter value */
+  memset(buffer, 0, BUF_SIZE);
+  sprintf(buffer, "%d", file_size);
+  strcat(control_packet, buffer);
+  bytes_written += L1;
+  
+  printf("control_packet: %s\n", control_packet);
+
+  /* file_name parameter code */
+  memset(buffer, 0, BUF_SIZE);
+  sprintf(buffer, "%d", FILE_NAME_CODE);
+  strcat(control_packet, buffer);
+  
+  printf("control_packet: %s\n", control_packet);
+
+  /* file_name parameter length in bytes */
+  memset(buffer, 0, BUF_SIZE);
+  L2 = strlen(file_name);
+  sprintf(buffer, "%lu", L2);
+  strcat(control_packet, buffer);
+  
+  printf("control_packet: %s\n", control_packet);
+
+  /* file_name parameter */
+  strcat(control_packet, file_name);
+  bytes_written += L2;
+  
+  printf("control_packet: %s\n", control_packet);
+  return bytes_written;
+}
+
+/* creates an I frame with the data from a data packet
+  (packet header + file fragment)
+  returns the number of bytes in the frame */
+int encapsulate_data_in_frame(char *message_to_send, char* buffer, int length, int seq_num) {
+
+  int message_to_send_size, i;
+
   /* calculate BCC2 */
   unsigned char BCC2;
   unsigned char BCC2_stuffed[2];
   int double_BCC2 = FALSE;
 
   BCC2 = buffer[0];
-  for (i = 1; i < length; i++){
+  for (i = 1; i < length; i++)
     BCC2 ^= buffer[i];
-    //printf("i = %d, BBC2 = %d\n", i, BCC2);
-  }
 
   if (BCC2 == FLAG) {
     BCC2_stuffed[0] = ESC;
@@ -373,14 +415,9 @@ int llwrite(int fd, char *buffer, int length) {
     double_BCC2 = TRUE;
   }
 
-  /* generate message cine e seq_num aici? Sigur nu trebuie alternate? */
+  /* generate message */
   message_to_send[0] = FLAG;
   message_to_send[1] = A;
-
-  //printf("Message to send after FLAG + A:\n");
-  //print_hexa_zero(message_to_send, 2);
-
-  //printf("Sequence Number: %d \n", seq_num);
 
   if (seq_num == 0) {
     message_to_send[2] = C_0;
@@ -388,15 +425,11 @@ int llwrite(int fd, char *buffer, int length) {
   } else {
     message_to_send[2] = C_1;
   }
-  //printf("Message to send after FLAG + A + C:\n");
-  //print_hexa_zero(message_to_send, 3);
-  
+ 
   message_to_send[3] = (message_to_send[1] ^ message_to_send[2]);
 
-  //printf("Message to send after FLAG + A + C + BCC1: \n");
-  //print_hexa_zero(message_to_send, 4);
-
   int n = 4; /* number of characters already written in the message_to_send */
+  message_to_send_size = length + FRAME_SIZE;
   for (i = 0; i < length; i++) {
     if (buffer[i] == FLAG) {
       message_to_send_size += 1;
@@ -416,9 +449,6 @@ int llwrite(int fd, char *buffer, int length) {
     }
   }
 
-    //printf("Message to send after FLAG + A + C + BCC1 + Message: \n");
-    //print_hexa_zero(message_to_send, n);
-
   if (!double_BCC2) {
     message_to_send[n] = BCC2;
     n += 1;
@@ -429,20 +459,24 @@ int llwrite(int fd, char *buffer, int length) {
     message_to_send[n + 1] = BCC2_stuffed[1];
     n += 2;
   }
-
-  //printf("Message to send after FLAG + A + C + BCC1 + Message + BCC2: \n");
-  //print_hexa_zero(message_to_send, n);
-
   message_to_send[n] = FLAG;
-  n += 1;
+  return n + 1;
+}
+/* encapsulates in I frame and sends the information contained in buffer */
+int llwrite(int fd, char *buffer, int length) {
 
-  //printf("Message to send: after EVERYTHING: \n");
-  //print_hexa_zero(message_to_send, n);
+  char *message_to_send = (char*) malloc((length + FRAME_SIZE) * sizeof(char));
+  int info_frame_size, i, seq_num = 0, rejected = FALSE, rejected_count = 0;
+
+  info_frame_size = encapsulate_data_in_frame(message_to_send, buffer, length, seq_num);
+  printf("After framing:\n");
+  print_hexa_zero(message_to_send, info_frame_size);
+  printf("Number of bytes written: %d\n", info_frame_size);
 
   // Send Message after generating it
   do {
 
-    write(fd, message_to_send, n);
+    write(fd, message_to_send, info_frame_size);
 
     flag_alarm_active = FALSE;
     alarm(TIMEOUT);
@@ -469,81 +503,59 @@ int llwrite(int fd, char *buffer, int length) {
       printf("Received rejection %x, serie = %d\n", C, seq_num);
       alarm(0);
     }
-    
-   	
-	
-  } while ((flag_alarm_active && count_alarm < MAX_ALARMS) || (rejected && rejected_count < MAX_REJECTIONS));
+  } while ((flag_alarm_active && count_alarm < MAX_ALARMS) ||
+           (rejected && rejected_count < MAX_REJECTIONS));
 
   if (count_alarm >= MAX_ALARMS)
     return ERR;
-  printf("Number of byter written: %d \n", n);
-  return n;
-}
-
-
-/* create a control packet with the structure C T1 L1 V1 T2 L2 V2 */
-char* create_control_field(int packet_type, int file_size, char* file_name) {
-  char *control_packet = (char*) malloc(sizeof(char));
-  char buffer[BUF_SIZE];
-
-  /* C - packet_type, start or end */
-  memset(buffer, 0, BUF_SIZE);
-  sprintf(buffer, "%d", packet_type);
-  strcat(control_packet, buffer);
   
-  /* file size parameter code */
-  memset(buffer, 0, BUF_SIZE);
-  sprintf(buffer, "%d", FILE_SIZE_CODE);
-  strcat(control_packet, buffer);
-
-  /* file_size parameter lenght in bytes */
-  memset(buffer, 0, BUF_SIZE);
-  sprintf(buffer, "%d", L1);
-  strcat(control_packet, buffer);
-
-  /* file_size parameter value */
-  memset(buffer, 0, BUF_SIZE);
-  sprintf(buffer, "%d", file_size);
-  strcat(control_packet, buffer);
-
-  /* file_name parameter code */
-  memset(buffer, 0, BUF_SIZE);
-  sprintf(buffer, "%d", FILE_NAME_CODE);
-  strcat(control_packet, buffer);
-  
-  /* file_name parameter length in bytes */
-  memset(buffer, 0, BUF_SIZE);
-  sprintf(buffer, "%d", L2);
-  strcat(control_packet, buffer);
-
-  /* file_name parameter length in bytes */
-  memset(buffer, 0, BUF_SIZE);
-  sprintf(buffer, "%d", file_name);
-  strcat(control_packet, buffer);
+  printf("Number of byter written: %d \n", info_frame_size);
+  return info_frame_size;
 }
 
-char* encapsulate_data(char* info) {
-
+void create_data_packet(char *data_packet, char *buffer, int length, int seq) {
+  data_packet[0] = DATA_PACKET;
+  data_packet[1] = seq % 255;
+  data_packet[2] = length / 256;
+  data_packet[3] = length % 256;
+  strcat(data_packet, buffer);
 }
 
-char * openFile(char *name, off_t size){
-  FILE *f;
-  struct stat meta_data;
-  char * file_data;
+void send_file(int fd, char* file_name) {
 
-  f = fopen((char  *) name, "rb");
-  if (f == NULL){
-    printf("Error: can't open file!");
+  FILE *fp;
+  char *control_packet = (char*) malloc(CONTROL_MESSAGE_LEN * sizeof(char));
+  char *data_packet = (char*) malloc((FRAGMENT_SIZE + 4) * sizeof(char));
+  int control_packet_len, bytes_read, end_of_file = FALSE, seq = 0;
+  char buffer[FRAGMENT_SIZE];
+
+  /* create control packet: START packet */
+  printf("File to send: size of %s is %li bytes\n", file_name, fsize(file_name));
+  control_packet_len = create_control_packet(control_packet, START_PACKET,
+                                             fsize(file_name), file_name);
+
+  printf("Send start control packet: %s of size = %d\n", control_packet, control_packet_len);
+  llwrite(fd, control_packet, control_packet_len);
+
+  /* open file in read mode */
+  fp = fopen(file_name, "r");
+  while (!end_of_file) {
+    memset(buffer, 0, FRAGMENT_SIZE);
+    bytes_read = fread(buffer, 1, FRAGMENT_SIZE, fp);
+
+    if (bytes_read < FRAGMENT_SIZE) {
+      printf("End of file detected\n");
+      end_of_file = TRUE;
+    }
+
+    memset(data_packet, 0, FRAGMENT_SIZE);
+    create_data_packet(data_packet, buffer, bytes_read, seq);
+    seq++;
+    printf("Send data packet of size %d\n", bytes_read + 4);
+    llwrite(fd, data_packet, bytes_read + 4);
   }
 
-  stat((char *)name, &meta_data);
-  (*size) = meta_data.st_size;
-
-  file_data = (char *) malloc (*size);
-
-  fread(file_data, sizeof(char), *size, f);
-  return file_data;
-
+  fclose(fp);
 }
 
 int main(int argc, char** argv) {
@@ -557,7 +569,6 @@ int main(int argc, char** argv) {
       printf("Usage:\tnserial SerialPort\n\tex: nserial /dev/ttyS1\n");
       exit(1);
     }
-
 
   /*
     Open serial port device for reading and writing and not as controlling tty
@@ -573,7 +584,6 @@ int main(int argc, char** argv) {
   signal(SIGALRM, alarm_handler);  /* link SIGALRM with alarm_handler function */
   llopen(fd);
 
-
   char random_buffer[7];
 
   random_buffer[0] = 0x75;
@@ -587,23 +597,7 @@ int main(int argc, char** argv) {
   llwrite(fd, random_buffer, strlen(random_buffer));
 
   llclose(fd);
-  /*
-    /*testing
-    buf[25] = '\n';
-    
-    res = write(fd,buf,255);   
-    printf("%d bytes written\n", res);
- 
-    for (i = 0; i < 255; i++) {
-      buf[i] = 'a';
-    }
-  /* 
-    O ciclo FOR e as instruções seguintes devem ser alterados de modo a respeitar 
-    o indicado no guião 
   
-*/ 
-
-
   close(fd);
   return 0;
 }
