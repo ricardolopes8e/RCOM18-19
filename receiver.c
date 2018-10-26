@@ -36,6 +36,8 @@
 #define escape_character 0x7D
 #define C_0 0x00
 #define C_1 0x40
+#define MAX_DATA_SIZE 300
+#define FRAGMENT_SIZE 100
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
@@ -79,7 +81,7 @@ int read_control_message(int fd, int control_character) {
 
   while (state != STOP_STATE) {
     read(fd, &c, 1);
-    printf("Character received: %0xh\n", c);
+    // printf("Character received: %0xh\n", c);
 
     switch (state) {
       case START:
@@ -156,35 +158,34 @@ int read_control_message(int fd, int control_character) {
 
 int check_BCC2(char *message, int message_len) {
   int i;
-  unsigned char BCC2 = message[4]; /* start from the information, after BCC1 */
+  char BCC2 = message[4]; /* start from the information, after BCC1 */
 
-  printf("will xor: ");
-  print_hexa_zero(message, message_len);
-  printf("from 0 to %d\n", message_len - 2);
+  //printf("will xor: ");
+  //print_hexa_zero(message, message_len);
+  //printf("of len %d from 5 to %d\n", message_len, message_len - 2);
 
-  for (i = 1; i < message_len - 1; i++) {
+  for (i = 5; i < message_len - 2; i++) {
     BCC2 ^= message[i];
   }
-  printf("check if %0xh == %0xh\n", BCC2, message[message_len - 1]);
-  return BCC2 == message[message_len - 1];
+  //printf("check if %0xh == %0xh\n", BCC2, message[message_len - 2]);
+  return BCC2 == message[message_len - 2];
 }
 
-int llread(int fd, int *buff_len) {
+int llread(int fd, char *buffer) {
   int state = START;
-  char* message = (char*) malloc((*buff_len + 6) * sizeof(char));
   char c, control_character;
-  int seq_num, i = 0, count_read_char = 0;
+  int seq_num, rej = 0, count_read_char = 0;
 
   while (state != STOP_STATE) {
     read(fd, &c, 1);
 	count_read_char += 1;
-	printf("char_read = %0xh\n", c);
+	//printf("char_read = %0xh\n", c);
 
     switch(state) {
       case START:
         /* FLAG_RCV */
         if (c == FLAG) {
-          message[i++] = c;
+          buffer[count_read_char - 1] = c;
           state = FLAG_RCV;
         }
         break;
@@ -193,13 +194,13 @@ int llread(int fd, int *buff_len) {
         /* A_RCV */
         if (c == A) {
           state = A_RCV;
-          message[i++] = c;
+          buffer[count_read_char - 1] = c;
         }
         else if (c == FLAG)
           state = FLAG_RCV;
         else {
-	  	  memset(message, *buff_len, 0);
-		  i = 0;
+	  	  memset(buffer, MAX_DATA_SIZE, 0);
+		  count_read_char = 0;
           state = START;
         }
         break;
@@ -209,20 +210,20 @@ int llread(int fd, int *buff_len) {
         if (c == C_0) {
           seq_num = 0;
           state = C_RCV;
-          message[i++] = c;
+          buffer[count_read_char - 1] = c;
           control_character = c;
         } else if (c == C_1) {
           seq_num = 1;
           state = C_RCV;
-          message[i++] = c;
+          buffer[count_read_char - 1] = c;
           control_character = c;
         }
         else if (c == FLAG) {
           control_character = c;
           state = FLAG_RCV;
         } else {
-		  memset(message, *buff_len, 0);
-		  i = 0;
+		  memset(buffer, MAX_DATA_SIZE, 0);
+		  count_read_char = 0;
           state = START;
         }
         break;
@@ -231,25 +232,23 @@ int llread(int fd, int *buff_len) {
         /* BCC_OK */
         if (c == (A ^ control_character)) {
           state = BCC_OK;
-          message[i++] = c;
+          buffer[count_read_char - 1] = c;
         }
         else {
-		  memset(message, *buff_len, 0);
-		  i = 0;
+		  memset(buffer, MAX_DATA_SIZE, 0);
+		  count_read_char = 0;
           state = START;
         }
         break;
 
       case ESCAPE_STATE:
         if (c == 0x5E) { // 0x7D 0x5E => 0x7E (FLAG)
-          ++(*buff_len);
-          message = (char*) realloc(message, *buff_len);
-          message[*buff_len - 1] = FLAG;
+          count_read_char--;
+          buffer[count_read_char - 1] = FLAG;
           state = BCC_OK;
         } else if (c == 0x5D) { // 0x7D 0x5D => 0x7D (escape_character)
-          ++(*buff_len);
-          message = (char*) realloc(message, *buff_len);
-          message[*buff_len - 1] = escape_character;
+          count_read_char--;
+          buffer[count_read_char - 1] = escape_character;
           state = BCC_OK;
         } else {
           perror("Invalid character after escape.");
@@ -259,16 +258,18 @@ int llread(int fd, int *buff_len) {
 
       case BCC_OK:
         if (c == FLAG) {
-	  	  message[*buff_len] = c;
-          if (check_BCC2(message, *buff_len)) {
+	  	  buffer[count_read_char - 1] = c;
+          if (check_BCC2(buffer, count_read_char)) {
             if (seq_num == 0)
               send_control_message(fd, RR_1);
             else
               send_control_message(fd, RR_0);
 	    
             state = STOP_STATE;
+            
             printf("Sent RR for seq_num = %d\n", seq_num);
           } else {
+            rej = 1;
             if (seq_num == 0)
               send_control_message(fd, REJ_1);
             else
@@ -279,14 +280,17 @@ int llread(int fd, int *buff_len) {
         } else if (c == escape_character) {
           state = ESCAPE_STATE;
         } else {
-          ++(*buff_len);
-          message = (char*) realloc(message, *buff_len);
-          message[*buff_len - 1] = c;
+          buffer[count_read_char - 1] = c;
         }
         break;
     }
   }
-  printf("count_read_char: %d\n",  count_read_char);
+
+  if (rej) return 0;
+  //printf("count_read_char: %d\n", count_read_char);
+  //printf("Message after llread:\n");
+  //print_hexa_zero(buffer, count_read_char);
+  
   return count_read_char;
 }
 
@@ -345,89 +349,195 @@ void llclose(int fd) {
   tcsetattr(fd, TCSANOW, &oldtio);
 }
 
-int is_trailer_message(first, size_first, last, size_last){
-  if (size_first != size_last){
+int is_trailer_message(char* first,int size_first, char* last, int size_last){
+  /*
+  printf("***inside is_trailer_message: \n");
+  printf("First: \n");
+  print_hexa_zero(first, size_first);
+  printf("Last: \n");
+  print_hexa_zero(last, size_last);
+  printf("Last[0]: %c", last[0]);
+  */
+
+  
+  if (size_first != size_last || last[0] != '3'){
+    //printf("trainer false 1");
     return FALSE;
-  } else if (memcmp(first, last, size_first) == 0){
-    return true;
+  } else{
+    int i;
+    //printf("size_first: %d\n", size_first);
+    for (i = 1; i < size_first - 2; i++){
+      if (first[i] != last[i]){
+        printf("False at i: %d\n", i);
+        return FALSE;
+      }
+    }
+    printf("trailer true\n");
+    return TRUE;
   }
+  printf("trailer false 2\n");
   return FALSE;
 }
 
-char * remove_header(char *message, char message_size, int * new_size){
-  int n = 4;
-  char * new_message = (char *)malloc(message_size - 4);
-  for (int i = 0; i < message_size; i++){
-    new_message[i] = message[n];
-    n++;
+char * remove_header(char *message, char message_size, int * new_size, int *info_len){
+
+	/*Remove Header, Frame and Trailer*/
+
+  int L1, L2;
+
+  printf("gotcha");
+  char * new_message = (char *)malloc(message_size);
+  printf("gotcha 2");
+  L2 = message[6];
+  L1 = message[7];
+  printf("L2: %d\n", L2);
+  printf("L1: %d\n", L1);
+  *info_len = L1 + 256 * L2;
+  printf("info_len: %d", *info_len);
+  int i;
+  for ( i = 0; i < *info_len; i++){
+    new_message[i] = message[i+8];
+    
   }
-  *new_size = message_size - 4;
+  *new_size = *info_len;
+
+
   return new_message;
 }
 
-char* name_file(char* message){
+void name_file(char* message, char *name){
 
   /* not sure about this */
+  printf("Message in name_file:\n");
+  print_hexa_zero(message, 30);
+  memset(name, 0, 100);
 
-  char L1 = message[2];
-  int L2_index = (int) L1 + 4;
-  char L2 = message[L2_index];
+  int L1 = message[2] - '0';
+  int L2_index =  L1 + 4;
+  printf("L1: %i\n L2_index: %i\n", L1, L2_index);
+  int L2 = message[L2_index] - '0';
+  printf("L2: %i", L2);
 
-  char * name = (char *)malloc(L2 + 1);
-
-  for (int i = 0; i < L2; i++){
+  int i;
+  for (i = 0; i < L2; i++){
     name[i] = message[5 + L1 + i];
   }
 
   name[L2] = '\0';
-  return name;
-
 }
 
-off_t file_size (char* message){
+off_t size_of_file(char* message){
 
-  char L1 = message[2];
+  int L1 = message[2] - '0';
+  printf("L1: %d\n", L1);
+  off_t dec = 0;
+  char* new = (char*) malloc(100 * sizeof(char));
 
-  /*I'm kinda lost but I'll find a way to do this...tomorrow :) */
+  strncat(new, message + 3, L1);
+  new[L1] = '\0';
+  //printf("new: \n");
+  //print_hexa_zero(new, L1);
+  int i = 0;
+  for (i = 0; i < strlen(new); i++) {
+    //printf("%d \n", (new[i] - '0'));
+    dec = dec * 10 + (new[i] - '0');
+  }
+  //printf("%lu\n", dec);
+  return dec;
 }
 
 
-void receive_file(char* file_name){
+void receive_file(int fd){
 
-  char message_size;
-  char size_first_message;
-  char size_without_header;
+  int message_size;
+  FILE *file_out;
+  int size_first_message;
+  int size_without_header;
+  int info_len =0;
   off_t file_index = 0;
+  char* first_message = (char*) malloc((MAX_DATA_SIZE) * sizeof(char));
+  char* new_message = (char*) malloc((MAX_DATA_SIZE) * sizeof(char));
+  char* message = (char*) malloc((MAX_DATA_SIZE) * sizeof(char));
+  char* message_to_compare = (char*) malloc((MAX_DATA_SIZE) * sizeof(char));
+  char *file_name = (char*) malloc(100 * sizeof(char));
 
 
+  size_first_message = llread(fd, first_message);
 
-  char* first_message = llread(fd, $size_first_message);
+//printf("First message1 size = %d: ", size_first_message);
+print_hexa_zero(first_message, size_first_message);
 
-  char* file_name = name_file(first_message);
+int n = 4;
+int i;
+for (i = 0; i < size_first_message; i++){
+  new_message[i] = first_message[n];
+  n++;
+}
+size_first_message -= 4;
 
-  off_t file_size = file_size(first_message);
+//printf("First message2: ");
+//print_hexa_zero(first_message, size_without_header);
+
+name_file(new_message, file_name);
+
+ printf("File name: %s\n", file_name);
+
+off_t file_size = size_of_file(new_message);
+
+ printf("File Size: %lu\n", file_size);
 
 
-  char* allocated_space = (char *)malloc(file_size);
+//  char* allocated_space = (char *)malloc(2* file_size * sizeof(char));
+file_out = fopen(file_name, "wb+");
 
-  while(TRUE){
-    message = llread(fd, &message_size);
+  while(TRUE) {
+  
+    memset(message, 0, FRAGMENT_SIZE);
+    message_size = llread(fd, message);
+    printf("Message size: %d\n", message_size);
 
-    if (message_size == 0) continue;
+    if (message_size == 0){
+      printf("REJECTED PACKAGEEEEEE\n");
+      continue;
+    }
+    	
+	printf("\after llread\n");
+	print_hexa_zero(message, message_size);
 
-    if (is_trailer_message(first_message, size_first_message, message, message_size) == TRUE) break;
+    int n = 4;
+    int i = 0;
+    for (i = 0; i < message_size; i++){
+        message_to_compare[i] = message[n];
+        n++;
+    }
+	  int message_to_compare_size = message_size - 4;
 
-    message = remove_header(message, message_size, &size_without_header);
+    if (is_trailer_message(new_message, size_first_message, message_to_compare, message_to_compare_size))
+    	break;
 
-    memcpy(allocated_space + file_index, message, size_without_header);
+    //printf("Message before remove_header: ");
+    //print_hexa_zero(message, message_size);
+
+
+  	printf("\before removing header\n");
+	print_hexa_zero(message, message_size);
+
+    message = remove_header(message, message_size, &size_without_header, &info_len);
+    //printf("\nMessage after remove_header: ");
+    //print_hexa_zero(message, size_without_header);
+    //printf("\n info_len: %d", info_len);
+
+    
+    //memcpy(allocated_space + file_index, message, info_len);
+	printf("\nAPPEND\n");
+	printf("info_len = %d", info_len);
+	print_hexa_zero(message, info_len);
+
+    fwrite(message, 1, info_len, file_out);
     file_index += size_without_header;
   }
-
-
-
-  FILE *file = fopen((char *) file_name, "w");
-  fwrite((void *) allocated_space, 1, file_size, file);
-  fclose(file);
+  
+  fclose(file_out);
 
 }
 
@@ -455,8 +565,8 @@ int main(int argc, char** argv) {
   }
 
   llopen(fd);
-  int len = 7;
-  llread(fd, &len);  
+  
+  receive_file(fd);
 
   llclose(fd);
   
