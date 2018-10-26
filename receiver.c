@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <strings.h>
 #include <string.h>
+#include <limits.h>
 
 #define BAUDRATE B38400
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
@@ -45,7 +46,7 @@ struct termios oldtio, newtio;
 void print_hexa(char *str) {
   int j;
   for (j = 0; j < strlen(str); j++) {
-    printf("%0xh ", str[j]);  
+    printf("%0xh ", str[j]);
   }
   printf("\n");
 }
@@ -53,7 +54,7 @@ void print_hexa(char *str) {
 void print_hexa_zero(char *str, int len) {
   int j;
   for (j = 0; j < len; j++) {
-    printf("%0xh ", str[j]);  
+    printf("%0xh ", str[j]);
   }
   printf("\n");
 }
@@ -264,9 +265,9 @@ int llread(int fd, char *buffer) {
               send_control_message(fd, RR_1);
             else
               send_control_message(fd, RR_0);
-	    
+
             state = STOP_STATE;
-            
+
             printf("Sent RR for seq_num = %d\n", seq_num);
           } else {
             rej = 1;
@@ -290,7 +291,7 @@ int llread(int fd, char *buffer) {
   //printf("count_read_char: %d\n", count_read_char);
   //printf("Message after llread:\n");
   //print_hexa_zero(buffer, count_read_char);
-  
+
   return count_read_char;
 }
 
@@ -324,7 +325,7 @@ int llopen(int fd) {
     printf("New termios structure set\n");
 
     /*********** until here the code is provided on moodle ***********/
-    
+
     if (read_control_message(fd, SET_C)) {
       printf("Received SET\n");
       send_control_message(fd, UA_C);
@@ -340,7 +341,7 @@ void llclose(int fd) {
 	printf("Received DISC\n");
   	send_control_message(fd, state);
   }
-	
+
 
   state = UA_C;
   if (read_control_message(fd, state))
@@ -359,7 +360,7 @@ int is_trailer_message(char* first,int size_first, char* last, int size_last){
   printf("Last[0]: %c", last[0]);
   */
 
-  
+
   if (size_first != size_last || last[0] != '3'){
     //printf("trainer false 1");
     return FALSE;
@@ -397,7 +398,7 @@ char * remove_header(char *message, char message_size, int * new_size, int *info
   int i;
   for ( i = 0; i < *info_len; i++){
     new_message[i] = message[i+8];
-    
+
   }
   *new_size = *info_len;
 
@@ -415,8 +416,8 @@ void name_file(char* message, char *name){
   int L1 = message[2] - '0';
   int L2_index =  L1 + 4;
   printf("L1: %i\n L2_index: %i\n", L1, L2_index);
-  int L2 = message[L2_index] - '0';
-  printf("L2: %i", L2);
+  int L2 = message[L2_index];
+  printf("L2: %i\n", L2);
 
   int i;
   for (i = 0; i < L2; i++){
@@ -443,7 +444,13 @@ off_t size_of_file(char* message){
     dec = dec * 10 + (new[i] - '0');
   }
   //printf("%lu\n", dec);
+
+  if(dec >= (ULONG_MAX -2)){
+    return 0;
+  }
   return dec;
+
+
 }
 
 
@@ -484,14 +491,20 @@ name_file(new_message, file_name);
 
 off_t file_size = size_of_file(new_message);
 
+if (file_size == 0) {
+  printf("File not found on the writer side.\n");
+  exit(ERR);
+}
+
  printf("File Size: %lu\n", file_size);
+
 
 
 //  char* allocated_space = (char *)malloc(2* file_size * sizeof(char));
 file_out = fopen(file_name, "wb+");
 
   while(TRUE) {
-  
+
     memset(message, 0, FRAGMENT_SIZE);
     message_size = llread(fd, message);
     printf("Message size: %d\n", message_size);
@@ -500,7 +513,7 @@ file_out = fopen(file_name, "wb+");
       printf("REJECTED PACKAGEEEEEE\n");
       continue;
     }
-    	
+
 	printf("\after llread\n");
 	print_hexa_zero(message, message_size);
 
@@ -527,7 +540,7 @@ file_out = fopen(file_name, "wb+");
     //print_hexa_zero(message, size_without_header);
     //printf("\n info_len: %d", info_len);
 
-    
+
     //memcpy(allocated_space + file_index, message, info_len);
 	printf("\nAPPEND\n");
 	printf("info_len = %d", info_len);
@@ -536,7 +549,7 @@ file_out = fopen(file_name, "wb+");
     fwrite(message, 1, info_len, file_out);
     file_index += size_without_header;
   }
-  
+
   fclose(file_out);
 
 }
@@ -545,8 +558,8 @@ int main(int argc, char** argv) {
   int fd, c, res;
   char buf[255];
 
-  if ((argc < 2) || 
-	   ((strcmp("/dev/ttyS0", argv[1])!=0) && 
+  if ((argc < 2) ||
+	   ((strcmp("/dev/ttyS0", argv[1])!=0) &&
 	    (strcmp("/dev/ttyS1", argv[1])!=0) )) {
     printf("Usage:\tnserial SerialPort\n\tex: nserial /dev/ttyS1\n");
     exit(1);
@@ -565,11 +578,11 @@ int main(int argc, char** argv) {
   }
 
   llopen(fd);
-  
+
   receive_file(fd);
 
   llclose(fd);
-  
+
   close(fd);
   return 0;
 }
