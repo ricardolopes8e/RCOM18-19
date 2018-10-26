@@ -10,35 +10,7 @@
 #include <strings.h>
 #include <string.h>
 #include <limits.h>
-
-#define BAUDRATE B38400
-#define _POSIX_SOURCE 1 /* POSIX compliant source */
-#define FLAG 126 /* 0x7E */
-#define A 3 /* 0x03 */
-#define SET_C 3 /* 0x03 */
-#define UA_C 7 /* 0x07 */
-#define DISC_C 11 /* 0x0B */
-#define FALSE 0
-#define TRUE 1
-#define ERR -1
-#define START 0
-#define FLAG_RCV 1
-#define A_RCV 2
-#define C_RCV 3
-#define BCC_OK 4
-#define STOP_STATE 5
-#define ESCAPE_STATE 6
-#define UA_SIZE 5
-#define SET_SIZE 5
-#define RR_0 0x05
-#define RR_1 0X85
-#define REJ_0 0x01
-#define REJ_1 0X81
-#define escape_character 0x7D
-#define C_0 0x00
-#define C_1 0x40
-#define MAX_DATA_SIZE 300
-#define FRAGMENT_SIZE 100
+#include "receiver.h"
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
@@ -386,9 +358,7 @@ char * remove_header(char *message, char message_size, int * new_size, int *info
 
   int L1, L2;
 
-  printf("gotcha");
   char * new_message = (char *)malloc(message_size);
-  printf("gotcha 2");
   L2 = message[6];
   L1 = message[7];
   printf("L2: %d\n", L2);
@@ -502,7 +472,8 @@ if (file_size == 0) {
 
 //  char* allocated_space = (char *)malloc(2* file_size * sizeof(char));
 file_out = fopen(file_name, "wb+");
-
+FILE* testFile;
+testFile = fopen("test.txt", "wb+");
   while(TRUE) {
 
     memset(message, 0, FRAGMENT_SIZE);
@@ -543,11 +514,16 @@ file_out = fopen(file_name, "wb+");
 
     //memcpy(allocated_space + file_index, message, info_len);
 	printf("\nAPPEND\n");
-	printf("info_len = %d", info_len);
-	print_hexa_zero(message, info_len);
+	//printf("info_len = %d", info_len);
+	//print_hexa_zero(message, info_len);
+  int j;
+  for (j = 0; j < info_len; j++) {
+    fprintf(testFile, "%0xh ", message[j]);
+  }
+  fprintf(testFile, "info len = %d\n", info_len);
+  fprintf(testFile, "\n");
 
     fwrite(message, 1, info_len, file_out);
-    file_index += size_without_header;
   }
 
   fclose(file_out);
