@@ -336,12 +336,14 @@ int create_control_packet(char *control_packet, int packet_type,
   int bytes_written = 5;
   double L1;
   long L2;
+  int pos = 0;
 
   printf("packet_type: %d\n", packet_type);
   /* C - packet_type, start or end */
   memset(buffer, 0, BUF_SIZE);
   sprintf(buffer, "%d", packet_type);
   strcat(control_packet, buffer);
+  pos++;
 
   printf("control_packet: %s\n", control_packet);
 
@@ -349,6 +351,7 @@ int create_control_packet(char *control_packet, int packet_type,
   memset(buffer, 0, BUF_SIZE);
   sprintf(buffer, "%d", FILE_SIZE_CODE);
   strcat(control_packet, buffer);
+  pos++;
 
   printf("control_packet: ");
   print_hexa_zero(control_packet, 3);
@@ -358,6 +361,7 @@ int create_control_packet(char *control_packet, int packet_type,
   L1 = floor(log10(abs(file_size))) + 1; /* size in octets of file_size */
   sprintf(buffer, "%0.0f", L1);
   strcat(control_packet, buffer);
+  pos++;
 
   printf("control_packet: ");
   print_hexa_zero(control_packet, 4);
@@ -367,6 +371,7 @@ int create_control_packet(char *control_packet, int packet_type,
   sprintf(buffer, "%d", file_size);
   strcat(control_packet, buffer);
   bytes_written += L1;
+  pos += L1;
 
   printf("control_packet: ");
   print_hexa_zero(control_packet, 4 + L1);
@@ -375,6 +380,7 @@ int create_control_packet(char *control_packet, int packet_type,
   memset(buffer, 0, BUF_SIZE);
   sprintf(buffer, "%d", FILE_NAME_CODE);
   strcat(control_packet, buffer);
+  pos++;
 
   printf("control_packet: ");
   print_hexa_zero(control_packet, 4 + L1 + 1);
@@ -382,8 +388,10 @@ int create_control_packet(char *control_packet, int packet_type,
   /* file_name parameter length in bytes */
   memset(buffer, 0, BUF_SIZE);
   L2 = strlen(file_name);
-  sprintf(buffer, "%lu", L2);
-  strcat(control_packet, buffer);
+  control_packet[pos] = L2;
+  pos++;
+  //sprintf(buffer, "%lu", L2);
+  //strcat(control_packet, buffer);
 
   printf("control_packet: ");
   print_hexa_zero(control_packet, 4 + L1 + 2);
@@ -577,6 +585,10 @@ int send_file(int fd, char* file_name) {
 
   /* open file in read mode */
   fp = fopen(file_name, "rb");
+  if (fp == NULL) {
+	printf("File does not exist\n");
+    exit(-1);
+  }
   int counter = 0;
   while (!end_of_file) {
 	counter++;
@@ -656,7 +668,7 @@ int main(int argc, char** argv) {
   random_buffer[11] = 0x41;
 
   // llwrite(fd, random_buffer, strlen(random_buffer));
-  send_file(fd,"p.gif");
+  send_file(fd,"pinguim.gif");
   llclose(fd);
 
   close(fd);
