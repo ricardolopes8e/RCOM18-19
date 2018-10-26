@@ -15,6 +15,8 @@
 #include <errno.h>
 #include <math.h>
 
+#define PH_SIZE 4
+
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
 int flag_alarm_active, count_alarm, received, end_of_UA, contor;
@@ -496,32 +498,32 @@ int encapsulate_data_in_frame(char *message_to_send, char* buffer, int length, i
 
   return n + 1;
 }
-/* encapsulates in I frame and sends the information contained in buffer */
-int llwrite(int fd, char *buffer, int length) {
+/* sends the information contained in buffer */
 
-  char *message_to_send = (char*) malloc((length + FRAME_SIZE) * sizeof(char));
-  int info_frame_size, i, seq_num = 0, rejected = FALSE, rejected_count = 0;
 
-printf("Message to send in llwrite: %s \n", buffer);
-print_hexa_zero(buffer, length);
-  memset(message_to_send, 0, (length + FRAME_SIZE));
+int llwrite(int fd, char *message_to_send, int info_frame_size) {
 
-  info_frame_size = encapsulate_data_in_frame(message_to_send, buffer, length, seq_num);
-  printf("After framing in llwrite:\n");
-  print_hexa_zero(message_to_send, info_frame_size);
-  printf("Number of bytes written: %d\n", info_frame_size);
+  // char *message_to_send = (char*) malloc((length + FRAME_SIZE) * sizeof(char));
+  int i, seq_num = 0, rejected = FALSE, rejected_count = 0;
+
+  // memset(message_to_send, 0, (length + FRAME_SIZE));
+
+  // info_frame_size = encapsulate_data_in_frame(message_to_send, buffer, length, seq_num);
+  // printf("After framing in llwrite:\n");
+  // print_hexa_zero(message_to_send, info_frame_size);
+  // printf("Number of bytes written: %d\n", info_frame_size);
 
   // Send Message after generating it
   do {
+	
+		write(fd, message_to_send, info_frame_size);
+		
+		flag_alarm_active = FALSE;
+		alarm(TIMEOUT);
 
-    write(fd, message_to_send, info_frame_size);
-
-    flag_alarm_active = FALSE;
-    alarm(TIMEOUT);
-
-    int C = read_control_message(fd);
-    printf("[llwrite]Received control charcter\n: %d", C);
-
+		int C = read_control_message(fd);
+		printf("[llwrite]Received control charcter\n: %d", C);
+	
 
     if ((C == RR_1 && seq_num == 0) || (C == RR_0 && seq_num == 1)) {
       printf("Received RR %x, serie = %d\n", C, seq_num);
@@ -572,8 +574,11 @@ int send_file(int fd, char* file_name) {
   FILE *fp;
   char *control_packet = (char*) malloc(CONTROL_MESSAGE_LEN * sizeof(char));
   char *data_packet = (char*) malloc((FRAGMENT_SIZE + 4) * sizeof(char));
-  int control_packet_len, bytes_read, end_of_file = FALSE, seq = 0;
+  int control_packet_len, data_packet_len, bytes_read, end_of_file = FALSE, seq = 0;
   char buffer[FRAGMENT_SIZE];
+  int bytes_after_framing, seq_num = 0;
+  int info_frame_size = FRAGMENT_SIZE + PH_SIZE + FRAME_SIZE;
+  char *message_to_send = (char*) malloc(info_frame_size * sizeof(char));
 
   /* create control packet: START packet */
   printf("File to send: size of %s is %li bytes\n", file_name, fsize(file_name));
@@ -581,17 +586,27 @@ int send_file(int fd, char* file_name) {
                                              fsize(file_name), file_name);
 
   printf("Send start control packet: %s of size = %d\n", control_packet, control_packet_len);
-  llwrite(fd, control_packet, control_packet_len);
 
-  /* open file in read mode */
+  /* put control_packet into I frames */
+  memset(message_to_send, 0, info_frame_size);
+  bytes_after_framing = encapsulate_data_in_frame(message_to_send, control_packet, control_packet_len, seq_num);
+
+printf("[START]After framing:\n");
+print_hexa_zero(message_to_send, control_packet_len);
+printf("Number of bytes written: %d\n", info_frame_size);
+
+  llwrite(fd, message_to_send, bytes_after_framing);
+  seq++;
+
+  /* open file to transmit in read mode */
   fp = fopen(file_name, "rb");
   if (fp == NULL) {
 	printf("File does not exist\n");
     exit(-1);
   }
-  int counter = 0;
+  // int counter = 0;
   while (!end_of_file) {
-	counter++;
+	// counter++;
     memset(buffer, 0, FRAGMENT_SIZE);
     bytes_read = fread(buffer, 1, FRAGMENT_SIZE, fp);
 
@@ -602,14 +617,20 @@ int send_file(int fd, char* file_name) {
       end_of_file = TRUE;
     }
 
-    memset(data_packet, 0, FRAGMENT_SIZE);
+	/* create data_packet */
+    memset(data_packet, 0, FRAGMENT_SIZE + PH_SIZE);
     create_data_packet(data_packet, buffer, bytes_read, seq);
-    seq++;
+	data_packet_len = bytes_read + PH_SIZE;
 
     printf("***********Fragment to send with header:***********\n");
-    print_hexa_zero(data_packet, FRAGMENT_SIZE + 4);
+    print_hexa_zero(data_packet, data_packet_len);
 
-    int r = llwrite(fd, data_packet, bytes_read + 4);
+	/* frame the data_packet into a I frame */
+	memset(message_to_send, 0, info_frame_size);
+    bytes_after_framing = encapsulate_data_in_frame(message_to_send, data_packet, data_packet_len, seq);
+
+    int r = llwrite(fd, message_to_send, bytes_after_framing);
+	seq++;
     
     if (r == ERR) {
       printf("Max number of alarms reached\n");
@@ -617,10 +638,15 @@ int send_file(int fd, char* file_name) {
     }
   }
 
+  /* create END control_packet */
   memset(control_packet, 0, control_packet_len);
   create_control_packet(control_packet, END_PACKET, fsize(file_name), file_name);
+
+  /* encapsulate into I frame */
+  memset(message_to_send, 0, info_frame_size);
+  bytes_after_framing = encapsulate_data_in_frame(message_to_send, control_packet, control_packet_len, seq_num);
   printf("Send STOP control packet: %s of size = %d\n", control_packet, control_packet_len);
-  llwrite(fd, control_packet, control_packet_len);
+  llwrite(fd, message_to_send, bytes_after_framing);
 
   fclose(fp);
   return 0;
