@@ -14,6 +14,7 @@
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
+int seq_num = 0;
 
 void print_hexa(char *str) {
   int j;
@@ -40,8 +41,8 @@ void send_control_message(int fd, int C) {
   message[3] = A ^ C;
   message[4] = FLAG;
 
-  printf("Transmit: ");
-  print_hexa(message);
+  //printf("Transmit: ");
+  //print_hexa(message);
   write(fd, message, UA_SIZE);
 }
 
@@ -124,8 +125,8 @@ int read_control_message(int fd, int control_character) {
   }
 
   /* print received buffer */
-  printf("Received: ");
-  print_hexa(buffer);
+  //printf("Received: ");
+  //print_hexa(buffer);
   return TRUE;
 }
 
@@ -147,7 +148,7 @@ int check_BCC2(char *message, int message_len) {
 int llread(int fd, char *buffer) {
   int state = START;
   char c, control_character;
-  int seq_num, rej = 0, count_read_char = 0;
+  int rej = 0, count_read_char = 0;
 
   while (state != STOP_STATE) {
     read(fd, &c, 1);
@@ -181,12 +182,12 @@ int llread(int fd, char *buffer) {
       case A_RCV:
         /* C_RCV */
         if (c == C_0) {
-          seq_num = 0;
+          //seq_num = 0;
           state = C_RCV;
           buffer[count_read_char - 1] = c;
           control_character = c;
         } else if (c == C_1) {
-          seq_num = 1;
+          //seq_num = 1;
           state = C_RCV;
           buffer[count_read_char - 1] = c;
           control_character = c;
@@ -233,22 +234,31 @@ int llread(int fd, char *buffer) {
         if (c == FLAG) {
 	  	  buffer[count_read_char - 1] = c;
           if (check_BCC2(buffer, count_read_char)) {
-            if (seq_num == 0)
+            if (seq_num == 0){
               send_control_message(fd, RR_1);
-            else
+              seq_num = 1;
+              printf("Sent RR_1\n");
+            }else{
               send_control_message(fd, RR_0);
+              seq_num = 0;
+              printf("Sent RR_0\n");
+            }  
 
             state = STOP_STATE;
 
-            printf("Sent RR for seq_num = %d\n", seq_num);
+
           } else {
             rej = 1;
-            if (seq_num == 0)
+            if (seq_num == 0){
               send_control_message(fd, REJ_1);
-            else
+              printf("Sent REJ_1\n");
+            }
+
+            else{
               send_control_message(fd, REJ_0);
+              printf("Sent REJ_0\n");
+            }
             state = STOP_STATE;
-            printf("Sent REJ, seq_num = %d\n", seq_num);
           }
         } else if (c == escape_character) {
           state = ESCAPE_STATE;
@@ -303,6 +313,8 @@ int llopen(int fd) {
       send_control_message(fd, UA_C);
       printf("Sent UA\n");
     }
+
+    printf("LLOPEN done!");
 }
 
 void llclose(int fd) {
@@ -341,14 +353,14 @@ int is_trailer_message(char* first,int size_first, char* last, int size_last){
     //printf("size_first: %d\n", size_first);
     for (i = 1; i < size_first - 2; i++){
       if (first[i] != last[i]){
-        printf("False at i: %d\n", i);
+        //printf("False at i: %d\n", i);
         return FALSE;
       }
     }
-    printf("trailer true\n");
+    //printf("trailer true\n");
     return TRUE;
   }
-  printf("trailer false 2\n");
+  //printf("trailer false 2\n");
   return FALSE;
 }
 
@@ -361,10 +373,10 @@ char * remove_header(char *message, char message_size, int * new_size, int *info
   char * new_message = (char *)malloc(message_size);
   L2 = message[6];
   L1 = message[7];
-  printf("L2: %d\n", L2);
-  printf("L1: %d\n", L1);
+  //printf("L2: %d\n", L2);
+  //printf("L1: %d\n", L1);
   *info_len = L1 + 256 * L2;
-  printf("info_len: %d", *info_len);
+  printf("info_len: %d \n", *info_len);
   int i;
   for ( i = 0; i < *info_len; i++){
     new_message[i] = message[i+8];
@@ -379,8 +391,8 @@ char * remove_header(char *message, char message_size, int * new_size, int *info
 void name_file(char* message, char *name){
 
   /* not sure about this */
-  printf("Message in name_file:\n");
-  print_hexa_zero(message, 30);
+  //printf("Message in name_file:\n");
+  //print_hexa_zero(message, 30);
   memset(name, 0, 100);
 
   int L1 = message[2] - '0';
@@ -439,10 +451,10 @@ void receive_file(int fd){
   char *file_name = (char*) malloc(100 * sizeof(char));
 
 
-  size_first_message = llread(fd, first_message);
+size_first_message = llread(fd, first_message);
 
 //printf("First message1 size = %d: ", size_first_message);
-print_hexa_zero(first_message, size_first_message);
+//print_hexa_zero(first_message, size_first_message);
 
 int n = 4;
 int i;
@@ -470,23 +482,24 @@ if (file_size == 0) {
 
 
 
-//  char* allocated_space = (char *)malloc(2* file_size * sizeof(char));
+//char* allocated_space = (char *)malloc(2* file_size * sizeof(char));
 file_out = fopen(file_name, "wb+");
-FILE* testFile;
-testFile = fopen("test.txt", "wb+");
+  int packet_number = 1;
   while(TRUE) {
+
+    printf("***Packet number %d***\n",packet_number);
 
     memset(message, 0, FRAGMENT_SIZE);
     message_size = llread(fd, message);
     printf("Message size: %d\n", message_size);
 
     if (message_size == 0){
-      printf("REJECTED PACKAGEEEEEE\n");
+      printf("REJECTED PACKAGE\n");
       continue;
     }
 
-	printf("\after llread\n");
-	print_hexa_zero(message, message_size);
+	//printf("\after llread\n");
+	//print_hexa_zero(message, message_size);
 
     int n = 4;
     int i = 0;
@@ -496,15 +509,17 @@ testFile = fopen("test.txt", "wb+");
     }
 	  int message_to_compare_size = message_size - 4;
 
-    if (is_trailer_message(new_message, size_first_message, message_to_compare, message_to_compare_size))
+    if (is_trailer_message(new_message, size_first_message, message_to_compare, message_to_compare_size)){
+      printf("Trailer Message!\n");
     	break;
+    }
 
     //printf("Message before remove_header: ");
     //print_hexa_zero(message, message_size);
 
 
-  	printf("\before removing header\n");
-	print_hexa_zero(message, message_size);
+  	//printf("\before removing header\n");
+	  //print_hexa_zero(message, message_size);
 
     message = remove_header(message, message_size, &size_without_header, &info_len);
     //printf("\nMessage after remove_header: ");
@@ -513,17 +528,12 @@ testFile = fopen("test.txt", "wb+");
 
 
     //memcpy(allocated_space + file_index, message, info_len);
-	printf("\nAPPEND\n");
+	  //printf("\nAPPEND\n");
 	//printf("info_len = %d", info_len);
 	//print_hexa_zero(message, info_len);
-  int j;
-  for (j = 0; j < info_len; j++) {
-    fprintf(testFile, "%0xh ", message[j]);
-  }
-  fprintf(testFile, "info len = %d\n", info_len);
-  fprintf(testFile, "\n");
 
     fwrite(message, 1, info_len, file_out);
+    packet_number++;
   }
 
   fclose(file_out);
