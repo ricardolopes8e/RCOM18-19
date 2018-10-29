@@ -14,7 +14,8 @@
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
-int seq_num = 0;
+int seq_num_to_send = 0;
+int last_seq = 0;
 
 void print_hexa(char *str) {
   int j;
@@ -150,6 +151,7 @@ int llread(int fd, char *buffer) {
   char c, control_character;
   int rej = 0, count_read_char = 0;
 
+
   while (state != STOP_STATE) {
     read(fd, &c, 1);
 	count_read_char += 1;
@@ -182,12 +184,14 @@ int llread(int fd, char *buffer) {
       case A_RCV:
         /* C_RCV */
         if (c == C_0) {
-          //seq_num = 0;
+
+          seq_num_to_send = 1;
           state = C_RCV;
           buffer[count_read_char - 1] = c;
           control_character = c;
         } else if (c == C_1) {
-          //seq_num = 1;
+
+          seq_num_to_send = 0;
           state = C_RCV;
           buffer[count_read_char - 1] = c;
           control_character = c;
@@ -234,13 +238,13 @@ int llread(int fd, char *buffer) {
         if (c == FLAG) {
 	  	  buffer[count_read_char - 1] = c;
           if (check_BCC2(buffer, count_read_char)) {
-            if (seq_num == 0){
+            if (seq_num_to_send == 1){
               send_control_message(fd, RR_1);
-              seq_num = 1;
+              //seq_num_to_send = 1;
               printf("Sent RR_1\n");
             }else{
               send_control_message(fd, RR_0);
-              seq_num = 0;
+              //seq_num_to_send = 0;
               printf("Sent RR_0\n");
             }  
 
@@ -249,14 +253,14 @@ int llread(int fd, char *buffer) {
 
           } else {
             rej = 1;
-            if (seq_num == 0){
-              send_control_message(fd, REJ_1);
-              printf("Sent REJ_1\n");
+            if (seq_num_to_send == 0){
+              send_control_message(fd, REJ_0);
+              printf("Sent REJ_0\n");
             }
 
             else{
-              send_control_message(fd, REJ_0);
-              printf("Sent REJ_0\n");
+              send_control_message(fd, REJ_1);
+              printf("Sent REJ_1\n");
             }
             state = STOP_STATE;
           }
@@ -364,6 +368,25 @@ int is_trailer_message(char* first,int size_first, char* last, int size_last){
   return FALSE;
 }
 
+int compare_messages(char*previous, int previous_size, char* new, int size_new){
+  printf("\nPrevious size: %d\n", previous_size);
+  print_hexa_zero(previous, previous_size);
+  printf("\nNew size: %d\n",size_new);
+  print_hexa_zero(new, size_new);
+  if (previous_size != size_new){
+    return 1;
+  } else{
+    int i;
+    for (i = 0; i < size_new; i++){
+      if (previous[i] != new[i]){
+        return 1;
+      }
+    }
+  }
+
+  return 0;
+}
+
 char * remove_header(char *message, char message_size, int * new_size, int *info_len){
 
 	/*Remove Header, Frame and Trailer*/
@@ -443,15 +466,20 @@ void receive_file(int fd){
   int size_first_message;
   int size_without_header;
   int info_len =0;
+  int previous_size;
+
+  int compared;
   off_t file_index = 0;
   char* first_message = (char*) malloc((MAX_DATA_SIZE) * sizeof(char));
   char* new_message = (char*) malloc((MAX_DATA_SIZE) * sizeof(char));
   char* message = (char*) malloc((MAX_DATA_SIZE) * sizeof(char));
+  char* previous_message = (char*) malloc((MAX_DATA_SIZE) * sizeof(char));
   char* message_to_compare = (char*) malloc((MAX_DATA_SIZE) * sizeof(char));
   char *file_name = (char*) malloc(100 * sizeof(char));
 
 
 size_first_message = llread(fd, first_message);
+
 
 //printf("First message1 size = %d: ", size_first_message);
 //print_hexa_zero(first_message, size_first_message);
@@ -488,15 +516,34 @@ file_out = fopen(file_name, "wb+");
   while(TRUE) {
 
     printf("***Packet number %d***\n",packet_number);
+    printf("seq_num_to_send: %d\n", seq_num_to_send);
+    
+
+
 
     memset(message, 0, FRAGMENT_SIZE);
     message_size = llread(fd, message);
     printf("Message size: %d\n", message_size);
 
-    if (message_size == 0){
+    if(packet_number > 1){
+      compared = compare_messages(previous_message, previous_size, message, message_size);
+    }
+
+    if (message_size == 0 || message_size == ERR || compared == 0){
+      if (compared = 0){
+        printf("Same messages!!!\n");
+      }
       printf("REJECTED PACKAGE\n");
       continue;
     }
+
+    memset(previous_message, 0, FRAGMENT_SIZE);
+    memcpy(previous_message, message, message_size);
+    previous_size = message_size;
+
+    
+
+
 
 	//printf("\after llread\n");
 	//print_hexa_zero(message, message_size);
