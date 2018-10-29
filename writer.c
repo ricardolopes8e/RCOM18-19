@@ -20,7 +20,7 @@
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
 int flag_alarm_active, count_alarm, received, end_of_UA, contor;
-int seq_num = 0;
+int seq_num = 0, packet_number = 0;
 char UA_received[UA_SIZE + 1];
 
 void print_hexa(char *str) {
@@ -416,7 +416,7 @@ int create_control_packet(char *control_packet, int packet_type,
 /* creates an I frame with the data from a data packet
   (packet header + file fragment)
   returns the number of bytes in the frame */
-int encapsulate_data_in_frame(char *message_to_send, char* buffer, int length, int seq_num) {
+int encapsulate_data_in_frame(char *message_to_send, char* buffer, int length) {
 
   int message_to_send_size, i;
 
@@ -509,7 +509,7 @@ int encapsulate_data_in_frame(char *message_to_send, char* buffer, int length, i
 
 int llwrite(int fd, char *message_to_send, int info_frame_size) {
 
-
+  //printf("LLWRITE PACKET NUMBER %d", packet_number);
 
   // char *message_to_send = (char*) malloc((length + FRAME_SIZE) * sizeof(char));
   int i, rejected = FALSE, rejected_count = 0, try_count = 0;
@@ -525,7 +525,8 @@ int llwrite(int fd, char *message_to_send, int info_frame_size) {
   // Send Message after generating it
   do {
     try_count++;
-    printf("Try number: %d", try_count);
+
+    printf("Try number: %d\n", try_count);
 
 		write(fd, message_to_send, info_frame_size);
 
@@ -534,9 +535,7 @@ int llwrite(int fd, char *message_to_send, int info_frame_size) {
 
 		int C = read_control_message(fd);
 		//printf("[llwrite]Received control character\n: %d", C);
-    if(C == REJ_0 || C == REJ_1){
-      printf("Received REJ!");
-    }
+
 
     //printf("C = %d\n", C);
     //printf("Sequence Number = %d\n", seq_num);
@@ -557,16 +556,22 @@ int llwrite(int fd, char *message_to_send, int info_frame_size) {
       alarm(0);
 
     } else if (C == REJ_0 || C == REJ_1 || C == ERR){
+      printf("Sequence Number = %d \n", seq_num);
+
       rejected = TRUE;
       rejected_count++;
-      printf("Rejected Count: %d", rejected_count);
-      if (C == REJ_0) printf("Received REJ_0\n");
-      if (C == REJ_1) printf("Received REJ_1\n");
+
+
+      if (C == REJ_0) printf("RECEIVED REJ_0\n");
+      if (C == REJ_1) printf("RECEIVED REJ_1\n");
+      if (C == ERR) printf("RECEIVED ERR\n");
+      printf("Rejected Count: %d\n", rejected_count);
       alarm(0);
+
     }
 
-  } while ((flag_alarm_active && count_alarm < MAX_ALARMS) ||
-           (rejected && rejected_count < MAX_REJECTIONS));
+  } while ((flag_alarm_active && (count_alarm < MAX_ALARMS)) ||
+           (rejected && (rejected_count < MAX_REJECTIONS)));
 
   if (count_alarm >= MAX_ALARMS)
     return ERR;
@@ -613,13 +618,14 @@ int send_file(int fd, char* file_name) {
 
   /* put control_packet into I frames */
   memset(message_to_send, 0, info_frame_size);
-  bytes_after_framing = encapsulate_data_in_frame(message_to_send, control_packet, control_packet_len, seq_num);
+  bytes_after_framing = encapsulate_data_in_frame(message_to_send, control_packet, control_packet_len);
 
 //printf("[START]After framing:\n");
 //print_hexa_zero(message_to_send, control_packet_len);
 //printf("Number of bytes written: %d\n", info_frame_size);
 
   llwrite(fd, message_to_send, bytes_after_framing);
+  packet_number++;
   seq++;
 
   /* open file to transmit in read mode */
@@ -651,9 +657,10 @@ int send_file(int fd, char* file_name) {
 
 	/* frame the data_packet into a I frame */
 	memset(message_to_send, 0, info_frame_size);
-    bytes_after_framing = encapsulate_data_in_frame(message_to_send, data_packet, data_packet_len, seq);
+    bytes_after_framing = encapsulate_data_in_frame(message_to_send, data_packet, data_packet_len);
 
     int r = llwrite(fd, message_to_send, bytes_after_framing);
+    packet_number++;
 	  seq++;
 
     if (r == ERR) {
@@ -668,9 +675,10 @@ int send_file(int fd, char* file_name) {
 
   /* encapsulate into I frame */
   memset(message_to_send, 0, info_frame_size);
-  bytes_after_framing = encapsulate_data_in_frame(message_to_send, control_packet, control_packet_len, seq_num);
+  bytes_after_framing = encapsulate_data_in_frame(message_to_send, control_packet, control_packet_len);
   printf("Send STOP control packet: %s of size = %d\n", control_packet, control_packet_len);
   llwrite(fd, message_to_send, bytes_after_framing);
+  packet_number++;
 
   fclose(fp);
   return 0;
