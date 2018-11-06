@@ -1,3 +1,16 @@
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <termios.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <errno.h>
+#include <math.h>
+
 #define BAUDRATE B38400
 #define MODEMDEVICE "/dev/ttyS1"
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
@@ -39,3 +52,29 @@
 #define CONTROL_MESSAGE_LEN 20
 #define FRAME_SIZE 6
 #define FRAGMENT_SIZE 100
+#define PH_SIZE 4
+
+void print_hexa(char *str); //aux
+void print_hexa_zero(char *str, int len); //aux
+void alarm_handler(); //main
+void disable_alarm(); //llopen
+void send_control_message(int fd, int C); //llopen & llclose
+void state_machine_UA(int *state, unsigned char *c); //llopen & llclose
+
+int llopen (int fd);
+
+int read_control_message(int fd); // llwrite
+
+void llclose(int fd);
+
+off_t fsize(const char *filename); //send_file
+
+int create_control_packet(char *control_packet, int packet_type, int file_size, char* file_name); //send_file
+
+int encapsulate_data_in_frame(char *message_to_send, char* buffer, int length); //send_file
+
+int llwrite(int fd, char *message_to_send, int info_frame_size);
+
+void create_data_packet(char *data_packet, char *buffer, int length, int seq); //send_file
+
+int send_file(int fd, char* file_name);

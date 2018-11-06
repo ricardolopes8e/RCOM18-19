@@ -1,26 +1,10 @@
 /*Non-Canonical Input Processing*/
 /* Transmitter */
-
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <termios.h>
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <signal.h>
 #include "writer.h"
-#include <errno.h>
-#include <math.h>
-
-#define PH_SIZE 4
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
-int flag_alarm_active, count_alarm, received, end_of_UA, contor;
-int seq_num = 0, packet_number = 0;
+int flag_alarm_active, count_alarm, received, end_of_UA, contor, seq_num = 0, packet_number = 0;
 char UA_received[UA_SIZE + 1];
 
 void print_hexa(char *str) {
@@ -137,6 +121,7 @@ void state_machine_UA(int *state, unsigned char *c) {
 
 
 }
+
 int llopen (int fd) {
 
   char *buf = (char*) malloc((UA_SIZE + 1) * sizeof(char));
