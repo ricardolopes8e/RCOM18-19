@@ -93,7 +93,7 @@ void state_machine_UA(int *state, unsigned char *c) {
       break;
 
     case C_RCV:
-      if (*c == UA_C ^ A) {
+      if (*c == (UA_C ^ A)) {
         *state = BCC_OK;
         UA_received[contor++] = *c;
       }
@@ -124,8 +124,9 @@ void state_machine_UA(int *state, unsigned char *c) {
 
 int llopen (int fd) {
 
-  char *buf = (char*) malloc((UA_SIZE + 1) * sizeof(char));
-  int i = 0, state;
+  //char *buf = (char*) malloc((UA_SIZE + 1) * sizeof(char));
+  //int i = 0;
+  int state;
   char c;
 
   if (tcgetattr(fd, &oldtio) == ERR) { /* save current port settings */
@@ -188,7 +189,7 @@ int llopen (int fd) {
 
 /*
     do {
-      send_control_message(fd, SET_C); /* send SET
+      send_control_message(fd, SET_C); // send SET
       alarm(TIMEOUT);
       flag_alarm_active = 0;
       state = START;
@@ -497,7 +498,8 @@ int llwrite(int fd, char *message_to_send, int info_frame_size) {
   //printf("LLWRITE PACKET NUMBER %d", packet_number);
 
   // char *message_to_send = (char*) malloc((length + FRAME_SIZE) * sizeof(char));
-  int i, rejected = FALSE, rejected_count = 0, try_count = 0;
+  //int i;
+  int rejected = FALSE, rejected_count = 0, try_count = 0;
   //int seq_num = 0;
 
   // memset(message_to_send, 0, (length + FRAME_SIZE));
@@ -670,13 +672,13 @@ int send_file(int fd, char* file_name) {
 }
 
 int main(int argc, char** argv) {
-    int fd,c, res;
-    char buf[255], generated_buffer[7];
-    int i, sum = 0, speed = 0;
+    int fd;
+    //char buf[255], generated_buffer[7];
+    //int i, sum = 0, speed = 0, c, res;
 
     if ( (argc < 2) ||
-  	     ((strcmp("/dev/ttyS0", argv[1])!=0) &&
-  	      (strcmp("/dev/ttyS1", argv[1])!=0) )) {
+         ((strcmp("/dev/ttyS0", argv[1])!=0) &&
+          (strcmp("/dev/ttyS1", argv[1])!=0) )) {
       printf("Usage:\tnserial SerialPort\n\tex: nserial /dev/ttyS1\n");
       exit(1);
     }
@@ -695,6 +697,7 @@ int main(int argc, char** argv) {
   signal(SIGALRM, alarm_handler);  /* link SIGALRM with alarm_handler function */
   llopen(fd);
 
+  /*
   char random_buffer[7];
 
   random_buffer[0] = 0x02;//0x75;
@@ -709,6 +712,7 @@ int main(int argc, char** argv) {
   random_buffer[9] = 0x41;
   random_buffer[10] = 0x42;
   random_buffer[11] = 0x41;
+  */
 
   // llwrite(fd, random_buffer, strlen(random_buffer));
   send_file(fd,"pinguim.gif");
