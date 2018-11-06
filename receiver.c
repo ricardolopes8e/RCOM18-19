@@ -1,29 +1,12 @@
 /*Non-Canonical Input Processing*/
 
-#include "receiver.h"
+#include "data_link_layer.h"
+#include "application_layer.h"
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
 int seq_num_to_send = 0;
 int last_seq = 0;
-
-void print_hexa(char* str)
-{
-    int j;
-    for (j = 0; j < strlen(str); j++) {
-        printf("%0xh ", str[j]);
-    }
-    printf("\n");
-}
-
-void print_hexa_zero(char* str, int len)
-{
-    int j;
-    for (j = 0; j < len; j++) {
-        printf("%0xh ", str[j]);
-    }
-    printf("\n");
-}
 
 void send_control_message(int fd, int C)
 {
@@ -252,9 +235,9 @@ int llread(int fd, char* buffer)
     return count_read_char;
 }
 
-int llopen(int fd)
+int llopen(int fd, int flag)
 {
-
+    int command_char, reply_char;
     if (tcgetattr(fd, &oldtio) == ERR) { /* save current port settings */
         perror("tcgetattr");
         exit(ERR);
@@ -282,11 +265,16 @@ int llopen(int fd)
     }
     printf("New termios structure set\n");
 
-    /*********** until here the code is provided on moodle ***********/
-
-    if (read_control_message(fd, SET_C)) {
+    if (flag == RECEIVER) {
+        command_char = SET_C;
+        reply_char = UA_C;
+    } else {
+        printf("[llopen]Receiver started with wrong flag\n");
+        return ERR;
+    }
+    if (read_control_message(fd, command_char)) {
         printf("Received SET\n");
-        send_control_message(fd, UA_C);
+        send_control_message(fd, reply_char);
         printf("Sent UA\n");
     }
 
@@ -294,7 +282,7 @@ int llopen(int fd)
     return fd;
 }
 
-void llclose(int fd)
+int llclose(int fd)
 {
     int state;
 
@@ -302,13 +290,19 @@ void llclose(int fd)
     if (read_control_message(fd, state)) {
         printf("Received DISC\n");
         send_control_message(fd, state);
+    } else {
+        return ERR;
     }
 
     state = UA_C;
-    if (read_control_message(fd, state))
+    if (read_control_message(fd, state)) {
         printf("Receiver terminated\n");
+    } else {
+        return ERR;
+    }
 
     tcsetattr(fd, TCSANOW, &oldtio);
+    return TRUE;
 }
 
 int is_trailer_message(char* first, int size_first, char* last, int size_last)
@@ -491,7 +485,7 @@ int main(int argc, char** argv)
         exit(ERR);
     }
 
-    llopen(fd);
+    llopen(fd, RECEIVER);
 
     receive_file(fd);
 

@@ -53,28 +53,29 @@
 #define FRAME_SIZE 6
 #define FRAGMENT_SIZE 100
 #define PH_SIZE 4
+#define TRANSMITTER 1
 
-void print_hexa(char *str); //aux
-void print_hexa_zero(char *str, int len); //aux
-void alarm_handler(); //main
-void disable_alarm(); //llopen
-void send_control_message(int fd, int C); //llopen & llclose
-void state_machine_UA(int *state, unsigned char *c); //llopen & llclose
+/*************** Data Link layer ***************/
+void alarm_handler();
+void disable_alarm();
+void send_control_message(int fd, int C);
 
-int llopen (int fd);
+/* reads control message and sets end_of_UA variable to true
+if the message was correctly formated, using the state machine */
+void state_machine_UA(int *state, unsigned char *c);
 
-int read_control_message(int fd); // llwrite
-
-void llclose(int fd);
-
-off_t fsize(const char *filename); //send_file
-
-int create_control_packet(char *control_packet, int packet_type, int file_size, char* file_name); //send_file
-
-int encapsulate_data_in_frame(char *message_to_send, char* buffer, int length); //send_file
-
+int llopen (int fd, int flag);
 int llwrite(int fd, char *message_to_send, int info_frame_size);
+int llclose(int fd);
 
-void create_data_packet(char *data_packet, char *buffer, int length, int seq); //send_file
+/* reads control message and returns the control character in the
+control message; also, uses the state machine to check if the message
+is correctly received */
+int read_control_message(int fd);
 
+/*************** Application layer ***************/
 int send_file(int fd, char* file_name);
+off_t fsize(const char *filename);
+int create_control_packet(char *control_packet, int packet_type, int file_size, char* file_name);
+int encapsulate_data_in_frame(char *message_to_send, char* buffer, int length);
+void create_data_packet(char *data_packet, char *buffer, int length, int seq);
