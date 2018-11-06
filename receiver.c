@@ -309,6 +309,7 @@ int llopen(int fd) {
     }
 
     printf("LLOPEN done!");
+    return fd;
 }
 
 void llclose(int fd) {
@@ -459,7 +460,6 @@ void receive_file(int fd){
   int previous_size;
 
   int compared;
-  off_t file_index = 0;
   char* first_message = (char*) malloc((MAX_DATA_SIZE) * sizeof(char));
   char* new_message = (char*) malloc((MAX_DATA_SIZE) * sizeof(char));
   char* message = (char*) malloc((MAX_DATA_SIZE) * sizeof(char));
@@ -520,7 +520,7 @@ file_out = fopen(file_name, "wb+");
     }
 
     if (message_size == 0 || message_size == ERR || compared == 0){
-      if (compared = 0){
+      if (compared == 0){
         printf("Same messages!!!\n");
       }
       printf("REJECTED PACKAGE\n");
@@ -578,8 +578,8 @@ file_out = fopen(file_name, "wb+");
 }
 
 int main(int argc, char** argv) {
-  int fd, c, res;
-  char buf[255];
+  int fd;
+
 
   if ((argc < 2) ||
 	   ((strcmp("/dev/ttyS0", argv[1])!=0) &&
