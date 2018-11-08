@@ -38,7 +38,6 @@
 #define ESC 0x7D
 #define ESC_AFTER 0x5E
 #define ESC_ESC 0x5D
-#define RECEIVER 0
 #define MAX_ALARMS 3
 #define MAX_REJECTIONS 3
 #define TIMEOUT 3

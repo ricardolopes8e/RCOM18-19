@@ -596,7 +596,7 @@ int main(int argc, char** argv) {
   }
 
   signal(SIGALRM, alarm_handler);  /* link SIGALRM with alarm_handler function */
-  llopen(fd, TRANSMITTER);
+  llopen(fd);
 
 
   send_file(fd,"pinguim.gif");
