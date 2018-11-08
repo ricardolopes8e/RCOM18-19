@@ -1,16 +1,7 @@
 /*Non-Canonical Input Processing*/
 
 #include "receiver.h"
-#include <fcntl.h>
-#include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <strings.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <termios.h>
-#include <unistd.h>
+
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
@@ -299,6 +290,7 @@ int llopen(int fd)
     }
 
     printf("LLOPEN done!");
+	return fd;
 }
 
 void llclose(int fd)
@@ -506,8 +498,7 @@ void receive_file(int fd)
 
 int main(int argc, char** argv)
 {
-    int fd, c, res;
-    char buf[255];
+    int fd;
 
     if ((argc < 2) || ((strcmp("/dev/ttyS0", argv[1]) != 0) && (strcmp("/dev/ttyS1", argv[1]) != 0))) {
         printf("Usage:\tnserial SerialPort\n\tex: nserial /dev/ttyS1\n");
