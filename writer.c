@@ -1,21 +1,7 @@
 /*Non-Canonical Input Processing*/
 /* Transmitter */
 
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <termios.h>
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <signal.h>
 #include "writer.h"
-#include <errno.h>
-#include <math.h>
-
-#define PH_SIZE 4
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
@@ -70,14 +56,14 @@ void send_control_message(int fd, int C) {
 void state_machine_UA(int *state, unsigned char *c) {
   switch (*state) {
     case START:
-		//printf("START\n");
+
       if (*c == FLAG) {
         *state = FLAG_RCV; /* transition FLAG_RCV */
         UA_received[contor++] = *c;
       }
       break;
     case FLAG_RCV:
-	//printf("FLAG_RCV\n");
+
       /* A_RCV */
       if (*c == A) {
         *state = A_RCV;
@@ -93,7 +79,7 @@ void state_machine_UA(int *state, unsigned char *c) {
       }
       break;
     case A_RCV:
-	//printf("A_RCV\n");
+
       if (*c == UA_C) {
         *state = C_RCV; /* transition to C_RCV */
         UA_received[contor++] = *c;
@@ -125,8 +111,7 @@ void state_machine_UA(int *state, unsigned char *c) {
         end_of_UA = TRUE;
         disable_alarm();
         printf("State Machine UA OK!\n");
-        //printf("UA received: ");
-        //print_hexa(UA_received);
+
       }
       else {
         memset(UA_received, 0, UA_SIZE + 1);
@@ -140,7 +125,7 @@ void state_machine_UA(int *state, unsigned char *c) {
 int llopen (int fd) {
 
   char *buf = (char*) malloc((UA_SIZE + 1) * sizeof(char));
-  int i = 0, state;
+  int state;
   char c;
 
   if (tcgetattr(fd, &oldtio) == ERR) { /* save current port settings */
@@ -184,13 +169,12 @@ int llopen (int fd) {
 
     while (!end_of_UA && !flag_alarm_active) {
     	read(fd, &c, 1);
-      //printf("We read %c\n", c);
+
 	    state_machine_UA(&state, &c);
     }
   }
 
-  //printf("flag alarm %d\n", flag_alarm_active);
-  //printf("sum %d\n", count_alarm);
+
 
   if (count_alarm == MAX_ALARMS && flag_alarm_active) {
     printf("LLOPEN returning false.\n");
@@ -201,27 +185,7 @@ int llopen (int fd) {
     return TRUE;
   }
 
-/*
-    do {
-      send_control_message(fd, SET_C); /* send SET
-      alarm(TIMEOUT);
-      flag_alarm_active = 0;
-      state = START;
-      while (!end_of_UA && !flag_alarm_active) {
-        read(fd, &c, 1);
-        printf("We read %c\n", c);
-        state_machine_UA(&state, &c);
-      }
-    } while (flag_alarm_active && count_alarm < MAX_ALARMS);
-    printf("flag alarm %d\n", flag_alarm_active);
-    printf("sum %d\n", count_alarm);
-    if (flag_alarm_active && count_alarm == MAX_ALARMS)
-      return FALSE;
-    else {
-      disable_alarm();
-      return TRUE;
-    }
-    */
+
 
 }
 /* reads control message and returns the control character in the
@@ -254,7 +218,7 @@ int read_control_message(int fd) {
     case A_RCV:
       if (c == RR_0 || c == RR_1 || c == REJ_0 || c == REJ_1 || c == DISC) {
         returnValue = c;
-        // printf("C in read_control_message 2: %d \n", returnValue);
+
         step = C_RCV;
       } else if (c == FLAG) {
           step = FLAG_RCV;
@@ -297,7 +261,7 @@ void llclose(int fd){
   state = START;
   while(state != STOP){
 
-    //control_char = read_control_message(fd);
+
     state_machine_UA(&state, &c);
     printf("State is: %d\n", state);
   }
@@ -325,18 +289,6 @@ off_t fsize(const char *filename) {
     return ERR;
 }
 
-/* create a control packet with the structure C T1 L1 V1 T2 L2 V2 */
-/* when called, use:
-
-  char file_name[FILE_NAME_SIZE];
-  char *control_packet = (char*) malloc(CONTROL_MESSAGE_LEN * sizeof(char));
-
-  strcpy(file_name, "<file_name>");
-
-  printf("File size of %s is %li bytes\n", file_name, fsize(file_name));
-  create_control_field(control_packet, 1, fsize(file_name), file_name);
-
-  */
 
 int create_control_packet(char *control_packet, int packet_type,
                           int file_size, char* file_name) {
@@ -346,14 +298,13 @@ int create_control_packet(char *control_packet, int packet_type,
   long L2;
   int pos = 0;
 
-//  printf("packet_type: %d\n", packet_type);
   /* C - packet_type, start or end */
   memset(buffer, 0, BUF_SIZE);
   sprintf(buffer, "%d", packet_type);
   strcat(control_packet, buffer);
   pos++;
 
-  //printf("control_packet: %s\n", control_packet);
+
 
   /* file size parameter code */
   memset(buffer, 0, BUF_SIZE);
@@ -361,8 +312,6 @@ int create_control_packet(char *control_packet, int packet_type,
   strcat(control_packet, buffer);
   pos++;
 
-  //printf("control_packet: ");
-  //print_hexa_zero(control_packet, 3);
 
   /* file_size parameter lenght in bytes */
   memset(buffer, 0, BUF_SIZE);
@@ -371,8 +320,6 @@ int create_control_packet(char *control_packet, int packet_type,
   strcat(control_packet, buffer);
   pos++;
 
-  //printf("control_packet: ");
-  //print_hexa_zero(control_packet, 4);
 
   /* file_size parameter value */
   memset(buffer, 0, BUF_SIZE);
@@ -381,8 +328,6 @@ int create_control_packet(char *control_packet, int packet_type,
   bytes_written += L1;
   pos += L1;
 
-  //printf("control_packet: ");
-  //print_hexa_zero(control_packet, 4 + L1);
 
   /* file_name parameter code */
   memset(buffer, 0, BUF_SIZE);
@@ -390,8 +335,7 @@ int create_control_packet(char *control_packet, int packet_type,
   strcat(control_packet, buffer);
   pos++;
 
-  //printf("control_packet: ");
-  //print_hexa_zero(control_packet, 4 + L1 + 1);
+
 
   /* file_name parameter length in bytes */
   memset(buffer, 0, BUF_SIZE);
@@ -486,7 +430,7 @@ int encapsulate_data_in_frame(char *message_to_send, char* buffer, int length) {
 /* sends the information contained in buffer */
 int llwrite(int fd, char *message_to_send, int info_frame_size) {
 
-  int i, rejected = FALSE, rejected_count = 0, try_count = 0;
+  int rejected = FALSE, rejected_count = 0, try_count = 0;
   do {
     try_count++;
 
@@ -554,7 +498,7 @@ int send_file(int fd, char* file_name) {
   int control_packet_len, data_packet_len, bytes_read, end_of_file = FALSE, seq = 0;
   char buffer[FRAGMENT_SIZE];
   int bytes_after_framing;
-  //int seq_num = 0;
+
   int info_frame_size = FRAGMENT_SIZE + PH_SIZE + FRAME_SIZE;
   char *message_to_send = (char*) malloc(info_frame_size * sizeof(char));
 
@@ -569,9 +513,7 @@ int send_file(int fd, char* file_name) {
   memset(message_to_send, 0, info_frame_size);
   bytes_after_framing = encapsulate_data_in_frame(message_to_send, control_packet, control_packet_len);
 
-//printf("[START]After framing:\n");
-//print_hexa_zero(message_to_send, control_packet_len);
-//printf("Number of bytes written: %d\n", info_frame_size);
+
 
   llwrite(fd, message_to_send, bytes_after_framing);
   packet_number++;
@@ -583,16 +525,13 @@ int send_file(int fd, char* file_name) {
 	printf("File does not exist\n");
     exit(-1);
   }
-  // int counter = 0;
+
   while (!end_of_file) {
-	// counter++;
+
     memset(buffer, 0, FRAGMENT_SIZE);
     bytes_read = fread(buffer, 1, FRAGMENT_SIZE, fp);
 
-    //printf("***********Fragment to send:***********\n");
-    //print_hexa_zero(buffer, FRAGMENT_SIZE);
     if (bytes_read < FRAGMENT_SIZE) {
-      //printf("End of file detected\n");
       end_of_file = TRUE;
     }
 
@@ -600,9 +539,6 @@ int send_file(int fd, char* file_name) {
     memset(data_packet, 0, FRAGMENT_SIZE + PH_SIZE);
     create_data_packet(data_packet, buffer, bytes_read, seq);
 	data_packet_len = bytes_read + PH_SIZE;
-
-    //printf("***********Fragment to send with header:***********\n");
-    //print_hexa_zero(data_packet, data_packet_len);
 
 	/* frame the data_packet into a I frame */
 	memset(message_to_send, 0, info_frame_size);
@@ -634,9 +570,8 @@ int send_file(int fd, char* file_name) {
 }
 
 int main(int argc, char** argv) {
-    int fd,c, res;
-    char buf[255], generated_buffer[7];
-    int i, sum = 0, speed = 0;
+    int fd;
+    //int i, sum = 0, speed = 0;
 
     if ( (argc < 2) ||
   	     ((strcmp("/dev/ttyS0", argv[1])!=0) &&
@@ -659,22 +594,7 @@ int main(int argc, char** argv) {
   signal(SIGALRM, alarm_handler);  /* link SIGALRM with alarm_handler function */
   llopen(fd);
 
-  char random_buffer[7];
 
-  random_buffer[0] = 0x02;//0x75;
-  random_buffer[1] = 0x00;//0x45;
-  random_buffer[2] = 0x02;//0x55;
-  random_buffer[3] = 0x09;
-  random_buffer[4] = 0x39;
-  random_buffer[5] = 0x32;
-  random_buffer[6] = 0x01;
-  random_buffer[7] = 0x01;
-  random_buffer[8] = 0x01;
-  random_buffer[9] = 0x41;
-  random_buffer[10] = 0x42;
-  random_buffer[11] = 0x41;
-
-  // llwrite(fd, random_buffer, strlen(random_buffer));
   send_file(fd,"pinguim.gif");
   llclose(fd);
 

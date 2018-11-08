@@ -1,3 +1,17 @@
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <termios.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <errno.h>
+#include <math.h>
+
 #define BAUDRATE B38400
 #define MODEMDEVICE "/dev/ttyS1"
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
@@ -39,3 +53,4 @@
 #define CONTROL_MESSAGE_LEN 20
 #define FRAME_SIZE 6
 #define FRAGMENT_SIZE 100
+#define PH_SIZE 4
