@@ -1,8 +1,10 @@
 /*Non-Canonical Input Processing*/
 /* Transmitter */
 
-#include "application_layer.h"
+//#include "writer.h"
 #include "data_link_layer.h"
+#include "application_layer.h"
+
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
@@ -192,7 +194,7 @@ int llopen (int fd) {
 /* reads control message and returns the control character in the
 control message; also, uses the state machine to check if the message
 is correctly received */
-int read_control_message(int fd) {
+int read_control_message_writer(int fd) {
   int step = START;
   unsigned char c;
   int returnValue = ERR;
@@ -249,7 +251,7 @@ int read_control_message(int fd) {
 }
 
 /* closes the connection between sender and receiver */
-void llclose(int fd){
+int llclose(int fd){
   char c;
   int control_char, state;
 
@@ -275,6 +277,7 @@ void llclose(int fd){
 
   tcsetattr(fd,TCSANOW,&oldtio);
   printf("Sender terminated!\n.");
+  return TRUE;
 }
 
 /* gets the file size in bytes if a given file */
@@ -442,7 +445,7 @@ int llwrite(int fd, char *message_to_send, int info_frame_size) {
 		flag_alarm_active = FALSE;
 		alarm(TIMEOUT);
 
-		int C = read_control_message(fd);
+		int C = read_control_message_writer(fd);
 
     if ((C == RR_1 && seq_num == 0) || (C == RR_0 && seq_num == 1)) {
       if (C == RR_0) printf("Received RR_0\n");

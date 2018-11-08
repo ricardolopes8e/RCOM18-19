@@ -1,3 +1,6 @@
+#include <errno.h>
+#include <math.h>
+
 #define C_0 0x00
 #define C_1 0x40
 #define MAX_DATA_SIZE 300

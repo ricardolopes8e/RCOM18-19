@@ -10,6 +10,7 @@
 #include <limits.h>
 #include <signal.h>
 
+
 #define BAUDRATE B38400
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define FLAG 126 /* 0x7E */
@@ -17,6 +18,7 @@
 #define SET_C 3 /* 0x03 */
 #define UA_C 7 /* 0x07 */
 #define DISC_C 11 /* 0x0B */
+#define DISC 0x0B
 #define FALSE 0
 #define TRUE 1
 #define ERR -1
@@ -43,6 +45,7 @@
 
 void send_control_message(int fd, int C);
 int read_control_message(int fd, int control_character);
+int read_control_message_writer(int fd);
 int check_BCC2(char *message, int message_len);
 
 int llread(int fd, char *buffer);
