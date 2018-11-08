@@ -42,6 +42,8 @@
 #define MAX_ALARMS 3
 #define MAX_REJECTIONS 3
 #define TIMEOUT 3
+#define TRANSMITTER 1
+#define RECEIVER 2
 
 void send_control_message(int fd, int C);
 int read_control_message(int fd, int control_character);
@@ -49,5 +51,5 @@ int read_control_message_writer(int fd);
 int check_BCC2(char *message, int message_len);
 
 int llread(int fd, char *buffer);
-int llopen(int fd);
+int llopen(int fd, int flag);
 int llclose(int fd);

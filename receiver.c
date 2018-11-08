@@ -206,7 +206,7 @@ int llread(int fd, char* buffer)
                 state = BCC_OK;
             } else if (c == 0x5D) { // 0x7D 0x5D => 0x7D (escape_character)
                 count_read_char--;
-                buffer[count_read_char - 1] = escape_character;
+                buffer[count_read_char - 1] = ESC;
                 state = BCC_OK;
             } else {
                 perror("Invalid character after escape.");
@@ -240,7 +240,7 @@ int llread(int fd, char* buffer)
                     }
                     state = STOP_STATE;
                 }
-            } else if (c == escape_character) {
+            } else if (c == ESC) {
                 state = ESCAPE_STATE;
             } else {
                 buffer[count_read_char - 1] = c;
@@ -254,7 +254,7 @@ int llread(int fd, char* buffer)
     return count_read_char;
 }
 
-int llopen(int fd)
+int llopen(int fd, int flag)
 {
 
     if (tcgetattr(fd, &oldtio) == ERR) { /* save current port settings */
@@ -521,7 +521,7 @@ int main(int argc, char** argv)
         exit(ERR);
     }
 
-    llopen(fd);
+    llopen(fd, RECEIVER);
 
     receive_file(fd);
 
