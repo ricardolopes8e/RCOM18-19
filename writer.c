@@ -1,567 +1,683 @@
 /*Non-Canonical Input Processing*/
 /* Transmitter */
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <termios.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <signal.h>
 #include "writer.h"
+#include <errno.h>
+#include <math.h>
+
+#define PH_SIZE 4
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
-int flag_alarm_active, count_alarm, received, end_of_UA, contor, seq_num = 0;
-int packet_number = 0;
+int flag_alarm_active, count_alarm, received, end_of_UA, contor;
+int seq_num = 0, packet_number = 0;
 char UA_received[UA_SIZE + 1];
 
-/* listens to the alarm */
-void alarm_handler()
-{
-    printf("alarm number %d\n3 sec expired\n", count_alarm);
-    flag_alarm_active = TRUE;
-    count_alarm++;
+void print_hexa(char *str) {
+  int j;
+  for (j = 0; j < strlen(str); j++) {
+    printf("%0xh ", str[j]);
+  }
+  printf("\n");
 }
 
-void disable_alarm()
-{
-    flag_alarm_active = 0;
-    count_alarm = 0;
-    alarm(0);
+void print_hexa_zero(char *str, int len) {
+  int j;
+  for (j = 0; j < len; j++) {
+    printf("%0xh ", str[j]);
+  }
+  printf("\n");
+}
+
+/* listens to the alarm */
+void alarm_handler() {
+  printf("alarm number %d\n3 sec expired\n", count_alarm);
+  flag_alarm_active = TRUE;
+  count_alarm++;
+}
+
+void disable_alarm() {
+  flag_alarm_active = 0;
+  count_alarm = 0;
+  alarm(0);
 }
 
 /* builds and sends to fd tge SET control message */
-void send_control_message(int fd, int C)
-{
-    unsigned char SET_message[SET_SIZE];
+void send_control_message(int fd, int C) {
+  unsigned char SET_message[SET_SIZE];
 
-    SET_message[0] = FLAG;
-    SET_message[1] = A;
-    SET_message[2] = C;
-    SET_message[3] = A ^ C;
-    SET_message[4] = FLAG;
+  SET_message[0] = FLAG;
+  SET_message[1] = A;
+  SET_message[2] = C;
+  SET_message[3] = A ^ C;
+  SET_message[4] = FLAG;
 
-    write(fd, SET_message, SET_SIZE);
+  printf("Transmit: ");
+  print_hexa(SET_message);
+  write(fd, SET_message, SET_SIZE);
 }
 
-void state_machine_UA(int* state, unsigned char* c)
-{
-    switch (*state) {
+void state_machine_UA(int *state, unsigned char *c) {
+  switch (*state) {
     case START:
-        if (*c == FLAG) {
-            *state = FLAG_RCV; /* transition FLAG_RCV */
-            UA_received[contor++] = *c;
-        }
-        break;
+		//printf("START\n");
+      if (*c == FLAG) {
+        *state = FLAG_RCV; /* transition FLAG_RCV */
+        UA_received[contor++] = *c;
+      }
+      break;
     case FLAG_RCV:
-        /* A_RCV */
-        if (*c == A) {
-            *state = A_RCV;
-            UA_received[contor++] = *c;
-        } else {
-            if (*c == FLAG)
-                *state = FLAG_RCV;
-            else {
-                memset(UA_received, 0, UA_SIZE + 1);
-                *state = START;
-            }
+	//printf("FLAG_RCV\n");
+      /* A_RCV */
+      if (*c == A) {
+        *state = A_RCV;
+        UA_received[contor++] = *c;
+      }
+      else {
+        if (*c == FLAG)
+          *state = FLAG_RCV;
+        else {
+          memset(UA_received, 0, UA_SIZE + 1);
+          *state = START;
         }
-        break;
+      }
+      break;
     case A_RCV:
-        if (*c == UA_C) {
-            *state = C_RCV; /* transition to C_RCV */
-            UA_received[contor++] = *c;
-        } else {
-            if (*c == FLAG)
-                *state = FLAG_RCV;
-            else {
-                memset(UA_received, 0, UA_SIZE + 1);
-                *state = START;
-            }
+	//printf("A_RCV\n");
+      if (*c == UA_C) {
+        *state = C_RCV; /* transition to C_RCV */
+        UA_received[contor++] = *c;
+      }
+      else {
+        if (*c == FLAG)
+          *state = FLAG_RCV;
+        else {
+          memset(UA_received, 0, UA_SIZE + 1);
+          *state = START;
         }
-        break;
+      }
+      break;
 
     case C_RCV:
-        if (*c == (UA_C ^ A)) {
-            *state = BCC_OK;
-            UA_received[contor++] = *c;
-        } else {
-            memset(UA_received, 0, UA_SIZE + 1);
-            *state = START;
-        }
-        break;
+      if (*c == UA_C ^ A) {
+        *state = BCC_OK;
+        UA_received[contor++] = *c;
+      }
+      else {
+        memset(UA_received, 0, UA_SIZE + 1);
+        *state = START;
+      }
+      break;
 
     case BCC_OK:
-        if (*c == FLAG) {
-            UA_received[contor++] = *c;
-            end_of_UA = TRUE;
-            disable_alarm();
-        } else {
-            memset(UA_received, 0, UA_SIZE + 1);
-            *state = START;
-        }
-        break;
+      if (*c == FLAG) {
+        UA_received[contor++] = *c;
+        end_of_UA = TRUE;
+        disable_alarm();
+        printf("State Machine UA OK!\n");
+        //printf("UA received: ");
+        //print_hexa(UA_received);
+      }
+      else {
+        memset(UA_received, 0, UA_SIZE + 1);
+        *state = START;
+      }
+      break;
     }
+
+
 }
+int llopen (int fd) {
 
-int llopen(int fd, int flag)
-{
-    int state;
-    char c;
+  char *buf = (char*) malloc((UA_SIZE + 1) * sizeof(char));
+  int i = 0, state;
+  char c;
 
-    if (tcgetattr(fd, &oldtio) == ERR) { /* save current port settings */
-        perror("tcgetattr error");
-        exit(ERR);
-    }
+  if (tcgetattr(fd, &oldtio) == ERR) { /* save current port settings */
+    perror("tcgetattr error");
+    exit(ERR);
+  }
 
-    bzero(&newtio, sizeof(newtio));
-    newtio.c_cflag = BAUDRATE | CS8 | CLOCAL | CREAD;
-    newtio.c_iflag = IGNPAR;
-    newtio.c_oflag = 0;
+  bzero(&newtio, sizeof(newtio));
+  newtio.c_cflag = BAUDRATE | CS8 | CLOCAL | CREAD;
+  newtio.c_iflag = IGNPAR;
+  newtio.c_oflag = 0;
 
-    /* set input mode (non-canonical, no echo,...) */
-    newtio.c_lflag = 0;
+  /* set input mode (non-canonical, no echo,...) */
+  newtio.c_lflag = 0;
 
-    newtio.c_cc[VTIME] = 1; /* inter-character timer value */
-    newtio.c_cc[VMIN] = 0; /* The read will be satisfied if a single
+  newtio.c_cc[VTIME] = 1;   /* inter-character timer value */
+  newtio.c_cc[VMIN]  = 0;   /* The read will be satisfied if a single
                             character is read, or TIME is exceeded
                             (t = TIME *0.1 s). If TIME is exceeded,
                             no character will be returned. */
-    tcflush(fd, TCIOFLUSH);
+  tcflush(fd, TCIOFLUSH);
 
-    if (tcsetattr(fd, TCSANOW, &newtio) == ERR) {
-        perror("tcsetattr error");
-        exit(ERR);
-    }
+  if (tcsetattr(fd, TCSANOW, &newtio) == ERR) {
+    perror("tcsetattr error");
+    exit(ERR);
+  }
 
-    printf("New termios structure set\n");
+  printf("New termios structure set\n");
 
-    /* Sends the SET control message, waits for UA for 3 seconds.
+  /**********so far, code from moodle**********/
+  /* Sends the SET control message, waits for UA for 3 seconds.
     If it does not receive UA, it resends SET, this operation being
     repeated for 3 times */
 
-    flag_alarm_active = TRUE;
+  flag_alarm_active = TRUE;
+  while (count_alarm < MAX_ALARMS && flag_alarm_active) {
+    send_control_message(fd, SET_C); /* send SET */
+    alarm(TIMEOUT);
+    flag_alarm_active = FALSE;
+    state = START;
 
-    while (count_alarm < MAX_ALARMS && flag_alarm_active) {
-        send_control_message(fd, SET_C); /* send SET */
-        alarm(TIMEOUT);
-        flag_alarm_active = FALSE;
-        state = START;
-
-        while (!end_of_UA && !flag_alarm_active) {
-            read(fd, &c, 1);
-            state_machine_UA(&state, &c);
-        }
+    while (!end_of_UA && !flag_alarm_active) {
+    	read(fd, &c, 1);
+      //printf("We read %c\n", c);
+	    state_machine_UA(&state, &c);
     }
+  }
 
-    if (count_alarm == MAX_ALARMS && flag_alarm_active) {
-        printf("LLOPEN returning false.\n");
-        return FALSE;
-    } else {
-        disable_alarm();
-        printf("LLOPEN OK!\n");
-        return TRUE;
+  //printf("flag alarm %d\n", flag_alarm_active);
+  //printf("sum %d\n", count_alarm);
+
+  if (count_alarm == MAX_ALARMS && flag_alarm_active) {
+    printf("LLOPEN returning false.\n");
+    return FALSE;
+  } else {
+    disable_alarm();
+    printf("LLOPEN OK!\n");
+    return TRUE;
+  }
+
+/*
+    do {
+      send_control_message(fd, SET_C); /* send SET
+      alarm(TIMEOUT);
+      flag_alarm_active = 0;
+      state = START;
+      while (!end_of_UA && !flag_alarm_active) {
+        read(fd, &c, 1);
+        printf("We read %c\n", c);
+        state_machine_UA(&state, &c);
+      }
+    } while (flag_alarm_active && count_alarm < MAX_ALARMS);
+    printf("flag alarm %d\n", flag_alarm_active);
+    printf("sum %d\n", count_alarm);
+    if (flag_alarm_active && count_alarm == MAX_ALARMS)
+      return FALSE;
+    else {
+      disable_alarm();
+      return TRUE;
     }
+    */
+
 }
 /* reads control message and returns the control character in the
 control message; also, uses the state machine to check if the message
 is correctly received */
-int read_control_message(int fd)
-{
-    int step = START;
-    unsigned char c;
-    int returnValue = ERR;
+int read_control_message(int fd) {
+  int step = START;
+  unsigned char c;
+  int returnValue = ERR;
 
-    while (!flag_alarm_active && step != STOP_STATE) {
-        read(fd, &c, 1);
-        switch (step) {
-        // FLAG
-        case START:
-            if (c == FLAG)
-                step = FLAG_RCV;
-            break;
-        // A
-        case FLAG_RCV:
-            if (c == A) {
-                step = A_RCV;
-            } else if (c == FLAG) {
-                step = FLAG_RCV;
-            } else {
-                step = START;
-            }
-            break;
-        // C
-        case A_RCV:
-            if (c == RR_0 || c == RR_1 || c == REJ_0 || c == REJ_1 || c == DISC) {
-                returnValue = c;
-                step = C_RCV;
-            } else if (c == FLAG) {
-                step = FLAG_RCV;
-            } else {
-                step = START;
-            }
-            break;
-        // BCC2
-        case C_RCV:
-            if (c == (A ^ returnValue))
-                step = BCC_OK;
-            else
-                step = START;
-            break;
+  while (!flag_alarm_active && step != STOP_STATE) {
+    read(fd, &c, 1);
+    switch (step) {
+    // FLAG
+    case START:
+      if (c == FLAG)
+        step = FLAG_RCV;
+      break;
+    // A
+    case FLAG_RCV:
+      if (c == A) {
+        step = A_RCV;
+      } else if (c == FLAG) {
+        step = FLAG_RCV;
+      } else {
+        step = START;
+      }
+      break;
+    // C
+    case A_RCV:
+      if (c == RR_0 || c == RR_1 || c == REJ_0 || c == REJ_1 || c == DISC) {
+        returnValue = c;
+        // printf("C in read_control_message 2: %d \n", returnValue);
+        step = C_RCV;
+      } else if (c == FLAG) {
+          step = FLAG_RCV;
+      } else {
+        step = START;
+      }
+      break;
+    // BCC2
+    case C_RCV:
+      if (c == (A ^ returnValue))
+        step = BCC_OK;
+      else
+        step = START;
+      break;
 
-        case BCC_OK:
-            if (c == FLAG) {
-                alarm(0);
-                step = STOP_STATE;
-                return returnValue;
-            } else
-                step = START;
-            break;
-        }
+    case BCC_OK:
+      if (c == FLAG) {
+        alarm(0);
+        step = STOP_STATE;
+        return returnValue;
+      } else
+        step = START;
+      break;
     }
-    return returnValue;
+  }
+  return returnValue;
 }
 
 /* closes the connection between sender and receiver */
-int llclose(int fd)
-{
-    char c;
-    int control_char, state;
+void llclose(int fd){
+  char c;
+  int control_char, state;
 
-    control_char = DISC;
-    send_control_message(fd, control_char);
+  control_char = DISC;
+  send_control_message(fd,control_char);
 
-    control_char = 0;
+  control_char = 0;
 
-    read(fd, &c, 1);
-    state = START;
+  read(fd,&c,1);
+  state = START;
+  while(state != STOP){
 
-    while (state != STOP)
-        state_machine_UA(&state, &c);
+    //control_char = read_control_message(fd);
+    state_machine_UA(&state, &c);
+    printf("State is: %d\n", state);
+  }
 
-    control_char = UA_C;
+  printf("[llclose]State after while is: %d\n", state);
 
-    send_control_message(fd, control_char);
+  control_char = UA_C;
 
-    tcsetattr(fd, TCSANOW, &oldtio);
-    printf("Sender terminated!\n.");
+  send_control_message(fd,control_char);
 
-    close(fd);
-
-    return TRUE;
+  tcsetattr(fd,TCSANOW,&oldtio);
+  printf("Sender terminated!\n.");
 }
 
 /* gets the file size in bytes if a given file */
-off_t fsize(const char* filename)
-{
+off_t fsize(const char *filename) {
     struct stat st;
 
     if (stat(filename, &st) == 0)
         return st.st_size;
 
     fprintf(stderr, "Cannot determine size of %s: %s\n",
-        filename, strerror(errno));
+            filename, strerror(errno));
 
     return ERR;
 }
 
 /* create a control packet with the structure C T1 L1 V1 T2 L2 V2 */
-int create_control_packet(char* control_packet, int packet_type,
-    int file_size, char* file_name)
-{
-    char buffer[BUF_SIZE];
-    int bytes_written = 5;
-    double L1;
-    long L2;
-    int pos = 0;
+/* when called, use:
 
-    /* C - packet_type, start or end */
-    memset(buffer, 0, BUF_SIZE);
-    sprintf(buffer, "%d", packet_type);
-    strcat(control_packet, buffer);
-    pos++;
+  char file_name[FILE_NAME_SIZE];
+  char *control_packet = (char*) malloc(CONTROL_MESSAGE_LEN * sizeof(char));
 
-    /* file size parameter code */
-    memset(buffer, 0, BUF_SIZE);
-    sprintf(buffer, "%d", FILE_SIZE_CODE);
-    strcat(control_packet, buffer);
-    pos++;
+  strcpy(file_name, "<file_name>");
 
-    /* file_size parameter lenght in bytes */
-    memset(buffer, 0, BUF_SIZE);
-    L1 = floor(log10(abs(file_size))) + 1; /* size in octets of file_size */
-    sprintf(buffer, "%0.0f", L1);
-    strcat(control_packet, buffer);
-    pos++;
+  printf("File size of %s is %li bytes\n", file_name, fsize(file_name));
+  create_control_field(control_packet, 1, fsize(file_name), file_name);
 
-    /* file_size parameter value */
-    memset(buffer, 0, BUF_SIZE);
-    sprintf(buffer, "%d", file_size);
-    strcat(control_packet, buffer);
-    bytes_written += L1;
-    pos += L1;
+  */
 
-    /* file_name parameter code */
-    memset(buffer, 0, BUF_SIZE);
-    sprintf(buffer, "%d", FILE_NAME_CODE);
-    strcat(control_packet, buffer);
-    pos++;
+int create_control_packet(char *control_packet, int packet_type,
+                          int file_size, char* file_name) {
+  char buffer[BUF_SIZE];
+  int bytes_written = 5;
+  double L1;
+  long L2;
+  int pos = 0;
 
-    /* file_name parameter length in bytes */
-    memset(buffer, 0, BUF_SIZE);
-    L2 = strlen(file_name);
-    control_packet[pos] = L2;
-    pos++;
+//  printf("packet_type: %d\n", packet_type);
+  /* C - packet_type, start or end */
+  memset(buffer, 0, BUF_SIZE);
+  sprintf(buffer, "%d", packet_type);
+  strcat(control_packet, buffer);
+  pos++;
 
-    /* file_name parameter */
-    strcat(control_packet, file_name);
-    bytes_written += L2;
+  //printf("control_packet: %s\n", control_packet);
 
-    return bytes_written;
+  /* file size parameter code */
+  memset(buffer, 0, BUF_SIZE);
+  sprintf(buffer, "%d", FILE_SIZE_CODE);
+  strcat(control_packet, buffer);
+  pos++;
+
+  //printf("control_packet: ");
+  //print_hexa_zero(control_packet, 3);
+
+  /* file_size parameter lenght in bytes */
+  memset(buffer, 0, BUF_SIZE);
+  L1 = floor(log10(abs(file_size))) + 1; /* size in octets of file_size */
+  sprintf(buffer, "%0.0f", L1);
+  strcat(control_packet, buffer);
+  pos++;
+
+  //printf("control_packet: ");
+  //print_hexa_zero(control_packet, 4);
+
+  /* file_size parameter value */
+  memset(buffer, 0, BUF_SIZE);
+  sprintf(buffer, "%d", file_size);
+  strcat(control_packet, buffer);
+  bytes_written += L1;
+  pos += L1;
+
+  //printf("control_packet: ");
+  //print_hexa_zero(control_packet, 4 + L1);
+
+  /* file_name parameter code */
+  memset(buffer, 0, BUF_SIZE);
+  sprintf(buffer, "%d", FILE_NAME_CODE);
+  strcat(control_packet, buffer);
+  pos++;
+
+  //printf("control_packet: ");
+  //print_hexa_zero(control_packet, 4 + L1 + 1);
+
+  /* file_name parameter length in bytes */
+  memset(buffer, 0, BUF_SIZE);
+  L2 = strlen(file_name);
+  control_packet[pos] = L2;
+  pos++;
+
+  /* file_name parameter */
+  strcat(control_packet, file_name);
+  bytes_written += L2;
+
+  return bytes_written;
 }
 
 /* creates an I frame with the data from a data packet
   (packet header + file fragment)
   returns the number of bytes in the frame */
-int encapsulate_data_in_frame(char* message_to_send, char* buffer, int length)
-{
+int encapsulate_data_in_frame(char *message_to_send, char* buffer, int length) {
 
-    int message_to_send_size, i;
+  int message_to_send_size, i;
 
-    /* calculate BCC2 */
-    char BCC2;
-    char BCC2_stuffed[2];
-    int double_BCC2 = FALSE;
+  /* calculate BCC2 */
+  char BCC2;
+  char BCC2_stuffed[2];
+  int double_BCC2 = FALSE;
 
-    BCC2 = buffer[0];
-    for (i = 1; i < length; i++)
-        BCC2 ^= buffer[i];
+  BCC2 = buffer[0];
+  for (i = 1; i < length; i++)
+    BCC2 ^= buffer[i];
 
-    if (BCC2 == FLAG) {
-        BCC2_stuffed[0] = ESC;
-        BCC2_stuffed[1] = ESC_AFTER;
-        double_BCC2 = TRUE;
-    } else if (BCC2 == ESC) {
-        BCC2_stuffed[0] = ESC;
-        BCC2_stuffed[1] = ESC_ESC;
-        double_BCC2 = TRUE;
-    }
+  //printf("BCC2 = %0xh\n", BCC2);
 
-    /* generate message */
-    message_to_send[0] = FLAG;
-    message_to_send[1] = A;
+  if (BCC2 == FLAG) {
+    BCC2_stuffed[0] = ESC;
+    BCC2_stuffed[1] = ESC_AFTER;
+    double_BCC2 = TRUE;
+  } else if (BCC2 == ESC){
+    BCC2_stuffed[0] = ESC;
+    BCC2_stuffed[1] = ESC_ESC;
+    double_BCC2 = TRUE;
+  }
 
-    if (seq_num == 0) {
-        message_to_send[2] = C_0;
+  /* generate message */
+  message_to_send[0] = FLAG;
+  message_to_send[1] = A;
+
+  if (seq_num == 0) {
+    message_to_send[2] = C_0;
+    //printf("Entered if\n");
+  } else {
+    message_to_send[2] = C_1;
+  }
+
+  message_to_send[3] = (message_to_send[1] ^ message_to_send[2]);
+
+  int n = 4; /* number of characters already written in the message_to_send */
+  message_to_send_size = length + FRAME_SIZE;
+  for (i = 0; i < length; i++) {
+    if (buffer[i] == FLAG) {
+      message_to_send_size += 1;
+      message_to_send = (char*) realloc(message_to_send, message_to_send_size);
+      message_to_send[n] = ESC;
+      message_to_send[n + 1] = ESC_AFTER;
+      n += 2;
+    } else if (buffer[i] == ESC) {
+      message_to_send_size += 1;
+      message_to_send = (char*) realloc(message_to_send, message_to_send_size);
+      message_to_send[n] = ESC;
+      message_to_send[n + 1] = ESC_ESC;
+      n += 2;
     } else {
-        message_to_send[2] = C_1;
+      message_to_send[n] = buffer[i];
+      n += 1;
     }
+  }
 
-    message_to_send[3] = (message_to_send[1] ^ message_to_send[2]);
+  if (!double_BCC2) {
+    message_to_send[n] = BCC2;
+    n += 1;
+  } else {
+    message_to_send_size += 1;
+    message_to_send = (char*) realloc(message_to_send, message_to_send_size);
+    message_to_send[n] = BCC2_stuffed[0];
+    message_to_send[n + 1] = BCC2_stuffed[1];
+    n += 2;
+  }
+  message_to_send[n] = FLAG;
 
-    int n = 4; /* number of characters already written in the message_to_send */
-    message_to_send_size = length + FRAME_SIZE;
-    for (i = 0; i < length; i++) {
-        if (buffer[i] == FLAG) {
-            message_to_send_size += 1;
-            message_to_send = (char*)realloc(message_to_send, message_to_send_size);
-            message_to_send[n] = ESC;
-            message_to_send[n + 1] = ESC_AFTER;
-            n += 2;
-        } else if (buffer[i] == ESC) {
-            message_to_send_size += 1;
-            message_to_send = (char*)realloc(message_to_send, message_to_send_size);
-            message_to_send[n] = ESC;
-            message_to_send[n + 1] = ESC_ESC;
-            n += 2;
-        } else {
-            message_to_send[n] = buffer[i];
-            n += 1;
-        }
-    }
-
-    if (!double_BCC2) {
-        message_to_send[n] = BCC2;
-        n += 1;
-    } else {
-        message_to_send_size += 1;
-        message_to_send = (char*)realloc(message_to_send, message_to_send_size);
-        message_to_send[n] = BCC2_stuffed[0];
-        message_to_send[n + 1] = BCC2_stuffed[1];
-        n += 2;
-    }
-    message_to_send[n] = FLAG;
-
-    return n + 1;
+  return n + 1;
 }
 
-/* sends the information contained in message_to_send */
-int llwrite(int fd, char* message_to_send, int info_frame_size)
-{
+/* sends the information contained in buffer */
+int llwrite(int fd, char *message_to_send, int info_frame_size) {
 
-    int rejected = FALSE, rejected_count = 0, try_count = 0;
-    do {
-        try_count++;
+  int i, rejected = FALSE, rejected_count = 0, try_count = 0;
+  do {
+    try_count++;
 
-        printf("Try number: %d\n", try_count);
+    printf("Try number: %d\n", try_count);
 
-        write(fd, message_to_send, info_frame_size);
+		write(fd, message_to_send, info_frame_size);
 
-        flag_alarm_active = FALSE;
-        alarm(TIMEOUT);
+		flag_alarm_active = FALSE;
+		alarm(TIMEOUT);
 
-        int C = read_control_message(fd);
+		int C = read_control_message(fd);
 
-        if ((C == RR_1 && seq_num == 0) || (C == RR_0 && seq_num == 1)) {
-            if (C == RR_0)
-                printf("Received RR_0\n");
-            if (C == RR_1)
-                printf("Received RR_1\n");
+    if ((C == RR_1 && seq_num == 0) || (C == RR_0 && seq_num == 1)) {
+      if (C == RR_0) printf("Received RR_0\n");
+      if (C == RR_1) printf("Received RR_1\n");
 
-            rejected = FALSE;
-            count_alarm = 0;
+      rejected = FALSE;
+      count_alarm = 0;
 
-            if (seq_num == 0) {
-                seq_num = 1;
-            } else {
-                seq_num = 0;
-            }
-            alarm(0);
+      if (seq_num == 0) {
+        seq_num = 1;
+      } else {
+        seq_num = 0;
+      }
+      alarm(0);
 
-        } else if (C == REJ_0 || C == REJ_1 || C == ERR) {
-            printf("Sequence Number = %d \n", seq_num);
+    } else if (C == REJ_0 || C == REJ_1) {
+      printf("Sequence Number = %d \n", seq_num);
+      rejected_count++;
 
-            rejected = TRUE;
-            rejected_count++;
+      rejected = TRUE;
 
-            if (C == REJ_0)
-                printf("RECEIVED REJ_0\n");
-            if (C == REJ_1)
-                printf("RECEIVED REJ_1\n");
-            if (C == ERR)
-                printf("RECEIVED ERR\n");
-            printf("Rejected Count: %d\n", rejected_count);
-            alarm(0);
-        }
 
-    } while ((flag_alarm_active && (count_alarm < MAX_ALARMS)) ||
-             (rejected && (rejected_count < MAX_REJECTIONS)));
+      if (C == REJ_0) printf("RECEIVED REJ_0\n");
+      if (C == REJ_1) printf("RECEIVED REJ_1\n");
+      if (C == ERR) printf("RECEIVED ERR\n");
+      printf("Rejected Count: %d\n", rejected_count);
+      alarm(0);
 
-    if (count_alarm >= MAX_ALARMS)
-        return ERR;
+    }
 
-    printf("Number of bytes written: %d \n", info_frame_size);
-    return info_frame_size;
+  } while ((flag_alarm_active && (count_alarm < MAX_ALARMS)) ||
+           (rejected && (rejected_count < MAX_REJECTIONS)));
+
+  if (count_alarm >= MAX_ALARMS)
+    return ERR;
+
+  printf("Number of bytes written: %d \n", info_frame_size);
+  return info_frame_size;
 }
 
-void create_data_packet(char* data_packet, char* buffer, int length, int seq)
-{
-    data_packet[0] = DATA_PACKET;
-    data_packet[1] = seq % 255;
-    data_packet[2] = length / 256; // L2
-    data_packet[3] = length - 256 * data_packet[2]; // L1
-    memcpy(data_packet + 4, buffer, length);
+void create_data_packet(char *data_packet, char *buffer, int length, int seq) {
+  data_packet[0] = DATA_PACKET;
+  data_packet[1] = seq % 255;
+  data_packet[2] = length / 256; // L2
+  data_packet[3] = length - 256 * data_packet[2]; // L1
+  memcpy(data_packet + 4, buffer, length);
 }
 
-int send_file(int fd, char* file_name)
-{
+int send_file(int fd, char* file_name) {
 
-    FILE* fp;
-    char* control_packet = (char*)malloc(CONTROL_MESSAGE_LEN * sizeof(char));
-    char* data_packet = (char*)malloc((FRAGMENT_SIZE + 4) * sizeof(char));
-    int control_packet_len, data_packet_len, bytes_read, end_of_file = FALSE, seq = 0;
-    char buffer[FRAGMENT_SIZE];
-    int bytes_after_framing;
-    int info_frame_size = FRAGMENT_SIZE + PH_SIZE + FRAME_SIZE;
-    char* message_to_send = (char*)malloc(info_frame_size * sizeof(char));
+  FILE *fp;
+  char *control_packet = (char*) malloc(CONTROL_MESSAGE_LEN * sizeof(char));
+  char *data_packet = (char*) malloc((FRAGMENT_SIZE + 4) * sizeof(char));
+  int control_packet_len, data_packet_len, bytes_read, end_of_file = FALSE, seq = 0;
+  char buffer[FRAGMENT_SIZE];
+  int bytes_after_framing;
+  //int seq_num = 0;
+  int info_frame_size = FRAGMENT_SIZE + PH_SIZE + FRAME_SIZE;
+  char *message_to_send = (char*) malloc(info_frame_size * sizeof(char));
 
-    /* create control packet: START packet */
-    printf("File to send: size of %s is %li bytes\n", file_name, fsize(file_name));
-    control_packet_len = create_control_packet(control_packet, START_PACKET,
-        fsize(file_name), file_name);
+  /* create control packet: START packet */
+  printf("File to send: size of %s is %li bytes\n", file_name, fsize(file_name));
+  control_packet_len = create_control_packet(control_packet, START_PACKET,
+                                             fsize(file_name), file_name);
 
-    printf("Send start control packet: %s of size = %d\n", control_packet, control_packet_len);
+  printf("Send start control packet: %s of size = %d\n", control_packet, control_packet_len);
 
-    /* put control_packet into I frames */
-    memset(message_to_send, 0, info_frame_size);
-    bytes_after_framing =
-    encapsulate_data_in_frame(message_to_send, control_packet, control_packet_len);
+  /* put control_packet into I frames */
+  memset(message_to_send, 0, info_frame_size);
+  bytes_after_framing = encapsulate_data_in_frame(message_to_send, control_packet, control_packet_len);
 
-    llwrite(fd, message_to_send, bytes_after_framing);
+//printf("[START]After framing:\n");
+//print_hexa_zero(message_to_send, control_packet_len);
+//printf("Number of bytes written: %d\n", info_frame_size);
+
+  llwrite(fd, message_to_send, bytes_after_framing);
+  packet_number++;
+  seq++;
+
+  /* open file to transmit in read mode */
+  fp = fopen(file_name, "rb");
+  if (fp == NULL) {
+	printf("File does not exist\n");
+    exit(-1);
+  }
+  // int counter = 0;
+  while (!end_of_file) {
+	// counter++;
+    memset(buffer, 0, FRAGMENT_SIZE);
+    bytes_read = fread(buffer, 1, FRAGMENT_SIZE, fp);
+
+    //printf("***********Fragment to send:***********\n");
+    //print_hexa_zero(buffer, FRAGMENT_SIZE);
+    if (bytes_read < FRAGMENT_SIZE) {
+      //printf("End of file detected\n");
+      end_of_file = TRUE;
+    }
+
+	/* create data_packet */
+    memset(data_packet, 0, FRAGMENT_SIZE + PH_SIZE);
+    create_data_packet(data_packet, buffer, bytes_read, seq);
+	data_packet_len = bytes_read + PH_SIZE;
+
+    //printf("***********Fragment to send with header:***********\n");
+    //print_hexa_zero(data_packet, data_packet_len);
+
+	/* frame the data_packet into a I frame */
+	memset(message_to_send, 0, info_frame_size);
+    bytes_after_framing = encapsulate_data_in_frame(message_to_send, data_packet, data_packet_len);
+
+    int r = llwrite(fd, message_to_send, bytes_after_framing);
     packet_number++;
-    seq++;
+	  seq++;
 
-    /* open file to transmit in read mode */
-    fp = fopen(file_name, "rb");
-    if (fp == NULL) {
-        printf("File does not exist\n");
-        exit(-1);
+    if (r == ERR) {
+      printf("Max number of alarms reached\n");
+      return ERR;
     }
+  }
 
-    while (!end_of_file) {
+  /* create END control_packet */
+  memset(control_packet, 0, control_packet_len);
+  create_control_packet(control_packet, END_PACKET, fsize(file_name), file_name);
 
-        memset(buffer, 0, FRAGMENT_SIZE);
-        bytes_read = fread(buffer, 1, FRAGMENT_SIZE, fp);
-        if (bytes_read < FRAGMENT_SIZE)
-            end_of_file = TRUE;
+  /* encapsulate into I frame */
+  memset(message_to_send, 0, info_frame_size);
+  bytes_after_framing = encapsulate_data_in_frame(message_to_send, control_packet, control_packet_len);
+  printf("Send STOP control packet: %s of size = %d\n", control_packet, control_packet_len);
+  llwrite(fd, message_to_send, bytes_after_framing);
+  packet_number++;
 
-        /* create data_packet */
-        memset(data_packet, 0, FRAGMENT_SIZE + PH_SIZE);
-        create_data_packet(data_packet, buffer, bytes_read, seq);
-        data_packet_len = bytes_read + PH_SIZE;
-
-        /* frame the data_packet into a I frame */
-        memset(message_to_send, 0, info_frame_size);
-        bytes_after_framing = encapsulate_data_in_frame(message_to_send,
-            data_packet, data_packet_len);
-
-        int r = llwrite(fd, message_to_send, bytes_after_framing);
-        packet_number++;
-        seq++;
-
-        if (r == ERR) {
-            printf("Max number of alarms reached\n");
-            return ERR;
-        }
-    }
-
-    /* create END control_packet */
-    memset(control_packet, 0, control_packet_len);
-    create_control_packet(control_packet, END_PACKET, fsize(file_name), file_name);
-
-    /* encapsulate into I frame */
-    memset(message_to_send, 0, info_frame_size);
-    bytes_after_framing = encapsulate_data_in_frame(message_to_send,
-        control_packet, control_packet_len);
-
-    llwrite(fd, message_to_send, bytes_after_framing);
-    packet_number++;
-
-    fclose(fp);
-    return 0;
+  fclose(fp);
+  return 0;
 }
 
-int main(int argc, char** argv)
-{
-    int fd;
+int main(int argc, char** argv) {
+    int fd,c, res;
+    char buf[255], generated_buffer[7];
+    int i, sum = 0, speed = 0;
 
-    if ((argc < 2) || ((strcmp("/dev/ttyS0", argv[1]) != 0) &&
-        (strcmp("/dev/ttyS1", argv[1]) != 0))) {
-        printf("Usage:\tnserial SerialPort\n\tex: nserial /dev/ttyS1\n");
-        exit(1);
+    if ( (argc < 2) ||
+  	     ((strcmp("/dev/ttyS0", argv[1])!=0) &&
+  	      (strcmp("/dev/ttyS1", argv[1])!=0) )) {
+      printf("Usage:\tnserial SerialPort\n\tex: nserial /dev/ttyS1\n");
+      exit(1);
     }
 
-    /*
+  /*
     Open serial port device for reading and writing and not as controlling tty
     because we don't want to get killed if linenoise sends CTRL-C.
   */
 
-    fd = open(argv[1], O_RDWR | O_NOCTTY);
-    if (fd < 0) {
-        perror(argv[1]);
-        exit(ERR);
-    }
+  fd = open(argv[1], O_RDWR | O_NOCTTY );
+  if (fd < 0) {
+    perror(argv[1]);
+    exit(ERR);
+  }
 
-    signal(SIGALRM, alarm_handler); /* link SIGALRM with alarm_handler function */
-    
-    llopen(fd, TRANSMITTER);
+  signal(SIGALRM, alarm_handler);  /* link SIGALRM with alarm_handler function */
+  llopen(fd);
 
-    send_file(fd, "pinguim.gif");
+  char random_buffer[7];
 
-    llclose(fd);
+  random_buffer[0] = 0x02;//0x75;
+  random_buffer[1] = 0x00;//0x45;
+  random_buffer[2] = 0x02;//0x55;
+  random_buffer[3] = 0x09;
+  random_buffer[4] = 0x39;
+  random_buffer[5] = 0x32;
+  random_buffer[6] = 0x01;
+  random_buffer[7] = 0x01;
+  random_buffer[8] = 0x01;
+  random_buffer[9] = 0x41;
+  random_buffer[10] = 0x42;
+  random_buffer[11] = 0x41;
 
-    return 0;
+  // llwrite(fd, random_buffer, strlen(random_buffer));
+  send_file(fd,"pinguim.gif");
+  llclose(fd);
+
+  close(fd);
+  return 0;
 }
