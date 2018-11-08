@@ -1,7 +1,8 @@
 /*Non-Canonical Input Processing*/
 /* Transmitter */
 
-#include "writer.h"
+#include "application_layer.h"
+#include "data_link_layer.h"
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;

@@ -8,6 +8,7 @@
 #include <strings.h>
 #include <string.h>
 #include <limits.h>
+#include <signal.h>
 
 #define BAUDRATE B38400
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
@@ -32,8 +33,13 @@
 #define RR_1 0X85
 #define REJ_0 0x01
 #define REJ_1 0X81
-#define escape_character 0x7D
+#define ESC 0x7D
+#define ESC_AFTER 0x5E
+#define ESC_ESC 0x5D
 #define RECEIVER 0
+#define MAX_ALARMS 3
+#define MAX_REJECTIONS 3
+#define TIMEOUT 3
 
 void send_control_message(int fd, int C);
 int read_control_message(int fd, int control_character);
