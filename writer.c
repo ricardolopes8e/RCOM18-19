@@ -125,7 +125,7 @@ void state_machine_UA(int *state, unsigned char *c) {
 
 
 }
-int llopen (int fd) {
+int llopen (int fd, int flag) {
 
   char *buf = (char*) malloc((UA_SIZE + 1) * sizeof(char));
   int state;
@@ -596,7 +596,7 @@ int main(int argc, char** argv) {
   }
 
   signal(SIGALRM, alarm_handler);  /* link SIGALRM with alarm_handler function */
-  llopen(fd);
+  llopen(fd, TRANSMITTER);
 
 
   send_file(fd,"pinguim.gif");
