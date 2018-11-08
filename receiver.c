@@ -1,12 +1,15 @@
 /*Non-Canonical Input Processing*/
 
-#include "receiver.h"
+
+#include "data_link_layer.h"
+#include "application_layer.h"
 
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
 int seq_num_to_send = 0;
 int last_seq = 0;
+
 
 void print_hexa(char* str)
 {
@@ -293,7 +296,7 @@ int llopen(int fd)
 	return fd;
 }
 
-void llclose(int fd)
+int llclose(int fd)
 {
     int state;
 
@@ -308,6 +311,8 @@ void llclose(int fd)
         printf("Receiver terminated\n");
 
     tcsetattr(fd, TCSANOW, &oldtio);
+	
+	return 1;
 }
 
 int is_trailer_message(char* first, int size_first, char* last, int size_last)

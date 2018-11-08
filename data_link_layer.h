@@ -40,5 +40,5 @@ int read_control_message(int fd, int control_character);
 int check_BCC2(char *message, int message_len);
 
 int llread(int fd, char *buffer);
-int llopen(int fd, int flag);
+int llopen(int fd);
 int llclose(int fd);
