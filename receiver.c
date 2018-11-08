@@ -1,12 +1,39 @@
 /*Non-Canonical Input Processing*/
 
-#include "data_link_layer.h"
-#include "application_layer.h"
+#include "receiver.h"
+#include <fcntl.h>
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <termios.h>
+#include <unistd.h>
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
 int seq_num_to_send = 0;
 int last_seq = 0;
+
+void print_hexa(char* str)
+{
+    int j;
+    for (j = 0; j < strlen(str); j++) {
+        printf("%0xh ", str[j]);
+    }
+    printf("\n");
+}
+
+void print_hexa_zero(char* str, int len)
+{
+    int j;
+    for (j = 0; j < len; j++) {
+        printf("%0xh ", str[j]);
+    }
+    printf("\n");
+}
 
 void send_control_message(int fd, int C)
 {
@@ -31,7 +58,6 @@ int read_control_message(int fd, int control_character)
 
     while (state != STOP_STATE) {
         read(fd, &c, 1);
-
         switch (state) {
         case START:
             /* FLAG_RCV */
@@ -95,6 +121,7 @@ int read_control_message(int fd, int control_character)
             break;
         }
     }
+
     return TRUE;
 }
 
@@ -106,7 +133,6 @@ int check_BCC2(char* message, int message_len)
     for (i = 5; i < message_len - 2; i++) {
         BCC2 ^= message[i];
     }
-
     return BCC2 == message[message_len - 2];
 }
 
@@ -119,7 +145,7 @@ int llread(int fd, char* buffer)
     while (state != STOP_STATE) {
         read(fd, &c, 1);
         count_read_char += 1;
-    
+
         switch (state) {
         case START:
             /* FLAG_RCV */
@@ -137,7 +163,7 @@ int llread(int fd, char* buffer)
             } else if (c == FLAG)
                 state = FLAG_RCV;
             else {
-                memset(buffer, 0, MAX_DATA_SIZE);
+                memset(buffer, MAX_DATA_SIZE, 0);
                 count_read_char = 0;
                 state = START;
             }
@@ -161,7 +187,7 @@ int llread(int fd, char* buffer)
                 control_character = c;
                 state = FLAG_RCV;
             } else {
-                memset(buffer, 0, MAX_DATA_SIZE);
+                memset(buffer, MAX_DATA_SIZE, 0);
                 count_read_char = 0;
                 state = START;
             }
@@ -173,18 +199,18 @@ int llread(int fd, char* buffer)
                 state = BCC_OK;
                 buffer[count_read_char - 1] = c;
             } else {
-                memset(buffer, 0, MAX_DATA_SIZE);
+                memset(buffer, MAX_DATA_SIZE, 0);
                 count_read_char = 0;
                 state = START;
             }
             break;
 
         case ESCAPE_STATE:
-            if (c == 0x5E) { /* 0x7D 0x5E => 0x7E (FLAG) */
+            if (c == 0x5E) { // 0x7D 0x5E => 0x7E (FLAG)
                 count_read_char--;
                 buffer[count_read_char - 1] = FLAG;
                 state = BCC_OK;
-            } else if (c == 0x5D) { /* 0x7D 0x5D => 0x7D (escape_character) */
+            } else if (c == 0x5D) { // 0x7D 0x5D => 0x7D (escape_character)
                 count_read_char--;
                 buffer[count_read_char - 1] = escape_character;
                 state = BCC_OK;
@@ -207,10 +233,9 @@ int llread(int fd, char* buffer)
                     }
 
                     state = STOP_STATE;
-
                 } else {
-                    rej = TRUE;
-                    if (seq_num_to_send == 0) {
+                    rej = 1;
+                    if (seq_num_to_send == 1) {
                         send_control_message(fd, REJ_0);
                         printf("Sent REJ_0\n");
                     }
@@ -235,9 +260,9 @@ int llread(int fd, char* buffer)
     return count_read_char;
 }
 
-int llopen(int fd, int flag)
+int llopen(int fd)
 {
-    int command_char, reply_char;
+
     if (tcgetattr(fd, &oldtio) == ERR) { /* save current port settings */
         perror("tcgetattr");
         exit(ERR);
@@ -265,24 +290,18 @@ int llopen(int fd, int flag)
     }
     printf("New termios structure set\n");
 
-    if (flag == RECEIVER) {
-        command_char = SET_C;
-        reply_char = UA_C;
-    } else {
-        printf("[llopen]Receiver started with wrong flag\n");
-        return ERR;
-    }
-    if (read_control_message(fd, command_char)) {
+    /*********** until here the code is provided on moodle ***********/
+
+    if (read_control_message(fd, SET_C)) {
         printf("Received SET\n");
-        send_control_message(fd, reply_char);
+        send_control_message(fd, UA_C);
         printf("Sent UA\n");
     }
 
     printf("LLOPEN done!");
-    return fd;
 }
 
-int llclose(int fd)
+void llclose(int fd)
 {
     int state;
 
@@ -290,19 +309,13 @@ int llclose(int fd)
     if (read_control_message(fd, state)) {
         printf("Received DISC\n");
         send_control_message(fd, state);
-    } else {
-        return ERR;
     }
 
     state = UA_C;
-    if (read_control_message(fd, state)) {
+    if (read_control_message(fd, state))
         printf("Receiver terminated\n");
-    } else {
-        return ERR;
-    }
 
     tcsetattr(fd, TCSANOW, &oldtio);
-    return TRUE;
 }
 
 int is_trailer_message(char* first, int size_first, char* last, int size_last)
@@ -337,20 +350,22 @@ int compare_messages(char* previous, int previous_size, char* new, int size_new)
     return 0;
 }
 
-/*Remove Header, Frame and Trailer*/
 char* remove_header(char* message, char message_size, int* new_size, int* info_len)
 {
-    int L1, L2, i;
-    char* new_message = (char*)malloc(message_size);
 
+    /*Remove Header, Frame and Trailer*/
+
+    int L1, L2;
+
+    char* new_message = (char*)malloc(message_size);
     L2 = message[6];
     L1 = message[7];
     *info_len = L1 + 256 * L2;
-    
+    printf("info_len: %d \n", *info_len);
+    int i;
     for (i = 0; i < *info_len; i++) {
         new_message[i] = message[i + 8];
     }
-
     *new_size = *info_len;
 
     return new_message;
@@ -358,13 +373,16 @@ char* remove_header(char* message, char message_size, int* new_size, int* info_l
 
 void name_file(char* message, char* name)
 {
+
     memset(name, 0, 100);
 
     int L1 = message[2] - '0';
     int L2_index = L1 + 4;
+    printf("L1: %i\n L2_index: %i\n", L1, L2_index);
     int L2 = message[L2_index];
-    int i;
+    printf("L2: %i\n", L2);
 
+    int i;
     for (i = 0; i < L2; i++) {
         name[i] = message[5 + L1 + i];
     }
@@ -375,16 +393,17 @@ void name_file(char* message, char* name)
 off_t size_of_file(char* message)
 {
 
-    int i, L1 = message[2] - '0';
+    int L1 = message[2] - '0';
     printf("L1: %d\n", L1);
     off_t dec = 0;
     char* new = (char*)malloc(100 * sizeof(char));
 
     strncat(new, message + 3, L1);
     new[L1] = '\0';
-    
-    for (i = 0; i < strlen(new); i++)
+    int i = 0;
+    for (i = 0; i < strlen(new); i++) {
         dec = dec * 10 + (new[i] - '0');
+    }
 
     if (dec >= (ULONG_MAX - 2)) {
         return 0;
@@ -395,9 +414,15 @@ off_t size_of_file(char* message)
 void receive_file(int fd)
 {
 
-    int message_size, size_first_message, size_without_header, info_len = 0;
-    int previous_size, n = 4, i, compared;
+    int message_size;
     FILE* file_out;
+    int size_first_message;
+    int size_without_header;
+    int info_len = 0;
+    int previous_size;
+
+    int compared;
+    off_t file_index = 0;
     char* first_message = (char*)malloc((MAX_DATA_SIZE) * sizeof(char));
     char* new_message = (char*)malloc((MAX_DATA_SIZE) * sizeof(char));
     char* message = (char*)malloc((MAX_DATA_SIZE) * sizeof(char));
@@ -407,6 +432,8 @@ void receive_file(int fd)
 
     size_first_message = llread(fd, first_message);
 
+    int n = 4;
+    int i;
     for (i = 0; i < size_first_message; i++) {
         new_message[i] = first_message[n];
         n++;
@@ -414,6 +441,9 @@ void receive_file(int fd)
     size_first_message -= 4;
 
     name_file(new_message, file_name);
+
+    printf("File name: %s\n", file_name);
+
     off_t file_size = size_of_file(new_message);
 
     if (file_size == 0) {
@@ -421,11 +451,17 @@ void receive_file(int fd)
         exit(ERR);
     }
 
+    printf("File Size: %lu\n", file_size);
     file_out = fopen(file_name, "wb+");
     int packet_number = 1;
     while (TRUE) {
+
+        printf("***Packet number %d***\n", packet_number);
+        printf("seq_num_to_send: %d\n", seq_num_to_send);
+
         memset(message, 0, FRAGMENT_SIZE);
         message_size = llread(fd, message);
+        printf("Message size: %d\n", message_size);
 
         if (packet_number > 1) {
             compared = compare_messages(previous_message, previous_size, message, message_size);
@@ -434,8 +470,10 @@ void receive_file(int fd)
         if (message_size == 0 || message_size == ERR || compared == 0) {
             if (compared == 0) {
                 printf("Same messages!!!\n");
+				printf("Rejected Message Size: %d", message_size); 
             }
             printf("REJECTED PACKAGE\n");
+
             continue;
         }
 
@@ -457,8 +495,9 @@ void receive_file(int fd)
         }
 
         message = remove_header(message, message_size, &size_without_header, &info_len);
-        
+
         fwrite(message, 1, info_len, file_out);
+
         packet_number++;
     }
 
@@ -467,7 +506,8 @@ void receive_file(int fd)
 
 int main(int argc, char** argv)
 {
-    int fd;
+    int fd, c, res;
+    char buf[255];
 
     if ((argc < 2) || ((strcmp("/dev/ttyS0", argv[1]) != 0) && (strcmp("/dev/ttyS1", argv[1]) != 0))) {
         printf("Usage:\tnserial SerialPort\n\tex: nserial /dev/ttyS1\n");
@@ -485,7 +525,7 @@ int main(int argc, char** argv)
         exit(ERR);
     }
 
-    llopen(fd, RECEIVER);
+    llopen(fd);
 
     receive_file(fd);
 
