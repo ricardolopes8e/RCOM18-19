@@ -47,8 +47,8 @@
 void send_control_message(int fd, int C);
 int read_control_message(int fd, int control_character);
 int read_control_message_writer(int fd);
-int check_BCC2(char *message, int message_len);
+int check_BCC2(unsigned char *message, int message_len);
 
-int llread(int fd, char *buffer);
+int llread(int fd, unsigned char *buffer);
 int llopen(int fd, int flag);
 int llclose(int fd);

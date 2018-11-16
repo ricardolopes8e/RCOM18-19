@@ -17,9 +17,9 @@
 #define PH_SIZE 4
 
 
-int is_trailer_message(char* first,int size_first, char* last, int size_last); //receive_file
-int compare_messages(char*previous, int previous_size, char* new, int size_new); //receive_file
-char * remove_header(char *message, char message_size, int * new_size, int *info_len); //receive_file
-void name_file(char* message, char *name); //receive_file
-off_t size_of_file(char* message); //receive_file
+int is_trailer_message(unsigned char* first,int size_first, unsigned char* last, int size_last); //receive_file
+int compare_messages(unsigned char*previous, int previous_size, unsigned char* new, int size_new); //receive_file
+unsigned char * remove_header(unsigned char *message, unsigned char message_size, int * new_size, int *info_len); //receive_file
+void name_file(unsigned char* message, unsigned char *name); //receive_file
+off_t size_of_file(unsigned char* message); //receive_file
 void receive_file(int fd);
