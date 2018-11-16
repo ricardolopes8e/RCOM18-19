@@ -5,14 +5,47 @@
 #include "data_link_layer.h"
 #include "application_layer.h"
 
+#define bcc1ErrorPercentage 0
+#define bcc2ErrorPercentage 0
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
 int flag_alarm_active, count_alarm, received, end_of_UA, contor;
 int seq_num = 0, packet_number = 0;
-char UA_received[UA_SIZE + 1];
+unsigned char UA_received[UA_SIZE + 1];
 
-void print_hexa(char *str) {
+ unsigned char *messUpBCC2( unsigned char *packet, int sizePacket)
+{
+   unsigned char *copia = ( unsigned char *)malloc(sizePacket);
+  memcpy(copia, packet, sizePacket);
+  int r = (rand() % 100) + 1;
+  if (r <= bcc2ErrorPercentage)
+  {
+    int i = (rand() % (sizePacket - 5)) + 4;
+     unsigned char randomLetter = ( unsigned char)('A' + (rand() % 26));
+    copia[i] = randomLetter;
+    printf("Modifiquei BCC2\n");
+  }
+  return copia;
+}
+
+ unsigned char *messUpBCC1( unsigned char *packet, int sizePacket)
+{
+   unsigned char *copia = ( unsigned char *)malloc(sizePacket);
+  memcpy(copia, packet, sizePacket);
+  int r = (rand() % 100) + 1;
+  if (r <= bcc1ErrorPercentage)
+  {
+    int i = (rand() % 3) + 1;
+     unsigned char randomLetter = ( unsigned char)('A' + (rand() % 26));
+    copia[i] = randomLetter;
+    printf("Modifiquei BCC1\n");
+  }
+  return copia;
+}
+
+
+void print_hexa(unsigned char *str) {
   int j;
   for (j = 0; j < strlen(str); j++) {
     printf("%0xh ", str[j]);
@@ -20,7 +53,7 @@ void print_hexa(char *str) {
   printf("\n");
 }
 
-void print_hexa_zero(char *str, int len) {
+void print_hexa_zero(unsigned char *str, int len) {
   int j;
   for (j = 0; j < len; j++) {
     printf("%0xh ", str[j]);
@@ -127,9 +160,9 @@ void state_machine_UA(int *state, unsigned char *c) {
 }
 int llopen (int fd, int flag) {
 
-  char *buf = (char*) malloc((UA_SIZE + 1) * sizeof(char));
+  unsigned char *buf = (unsigned char*) malloc((UA_SIZE + 1) * sizeof(unsigned char));
   int state;
-  char c;
+  unsigned char c;
 
   if (tcgetattr(fd, &oldtio) == ERR) { /* save current port settings */
     perror("tcgetattr error");
@@ -144,11 +177,11 @@ int llopen (int fd, int flag) {
   /* set input mode (non-canonical, no echo,...) */
   newtio.c_lflag = 0;
 
-  newtio.c_cc[VTIME] = 1;   /* inter-character timer value */
+  newtio.c_cc[VTIME] = 1;   /* inter-unsigned character timer value */
   newtio.c_cc[VMIN]  = 0;   /* The read will be satisfied if a single
-                            character is read, or TIME is exceeded
+                            unsigned character is read, or TIME is exceeded
                             (t = TIME *0.1 s). If TIME is exceeded,
-                            no character will be returned. */
+                            no unsigned character will be returned. */
   tcflush(fd, TCIOFLUSH);
 
   if (tcsetattr(fd, TCSANOW, &newtio) == ERR) {
@@ -191,7 +224,7 @@ int llopen (int fd, int flag) {
 
 
 }
-/* reads control message and returns the control character in the
+/* reads control message and returns the control unsigned character in the
 control message; also, uses the state machine to check if the message
 is correctly received */
 int read_control_message_writer(int fd) {
@@ -252,7 +285,7 @@ int read_control_message_writer(int fd) {
 
 /* closes the connection between sender and receiver */
 int llclose(int fd){
-  char c;
+  unsigned char c;
   int control_char, state;
 
   control_char = DISC;
@@ -281,7 +314,7 @@ int llclose(int fd){
 }
 
 /* gets the file size in bytes if a given file */
-off_t fsize(const char *filename) {
+off_t fsize(const unsigned char *filename) {
     struct stat st;
 
     if (stat(filename, &st) == 0)
@@ -294,9 +327,9 @@ off_t fsize(const char *filename) {
 }
 
 
-int create_control_packet(char *control_packet, int packet_type,
-                          int file_size, char* file_name) {
-  char buffer[BUF_SIZE];
+int create_control_packet(unsigned char *control_packet, int packet_type,
+                          int file_size, unsigned char* file_name) {
+  unsigned char buffer[BUF_SIZE];
   int bytes_written = 5;
   double L1;
   long L2;
@@ -357,13 +390,13 @@ int create_control_packet(char *control_packet, int packet_type,
 /* creates an I frame with the data from a data packet
   (packet header + file fragment)
   returns the number of bytes in the frame */
-int encapsulate_data_in_frame(char *message_to_send, char* buffer, int length) {
+int encapsulate_data_in_frame(unsigned char *message_to_send, unsigned char* buffer, int length) {
 
   int message_to_send_size, i;
 
   /* calculate BCC2 */
-  char BCC2;
-  char BCC2_stuffed[2];
+  unsigned char BCC2;
+  unsigned char BCC2_stuffed[2];
   int double_BCC2 = FALSE;
 
   BCC2 = buffer[0];
@@ -395,18 +428,18 @@ int encapsulate_data_in_frame(char *message_to_send, char* buffer, int length) {
 
   message_to_send[3] = (message_to_send[1] ^ message_to_send[2]);
 
-  int n = 4; /* number of characters already written in the message_to_send */
+  int n = 4; /* number of unsigned characters already written in the message_to_send */
   message_to_send_size = length + FRAME_SIZE;
   for (i = 0; i < length; i++) {
     if (buffer[i] == FLAG) {
       message_to_send_size += 1;
-      message_to_send = (char*) realloc(message_to_send, message_to_send_size);
+      message_to_send = (unsigned char*) realloc(message_to_send, message_to_send_size);
       message_to_send[n] = ESC;
       message_to_send[n + 1] = ESC_AFTER;
       n += 2;
     } else if (buffer[i] == ESC) {
       message_to_send_size += 1;
-      message_to_send = (char*) realloc(message_to_send, message_to_send_size);
+      message_to_send = (unsigned char*) realloc(message_to_send, message_to_send_size);
       message_to_send[n] = ESC;
       message_to_send[n + 1] = ESC_ESC;
       n += 2;
@@ -421,7 +454,7 @@ int encapsulate_data_in_frame(char *message_to_send, char* buffer, int length) {
     n += 1;
   } else {
     message_to_send_size += 1;
-    message_to_send = (char*) realloc(message_to_send, message_to_send_size);
+    message_to_send = (unsigned char*) realloc(message_to_send, message_to_send_size);
     message_to_send[n] = BCC2_stuffed[0];
     message_to_send[n + 1] = BCC2_stuffed[1];
     n += 2;
@@ -432,15 +465,20 @@ int encapsulate_data_in_frame(char *message_to_send, char* buffer, int length) {
 }
 
 /* sends the information contained in buffer */
-int llwrite(int fd, char *message_to_send, int info_frame_size) {
+int llwrite(int fd, unsigned char *message_to_send, int info_frame_size) {
 
   int rejected = FALSE, rejected_count = 0, try_count = 0;
   do {
     try_count++;
 
     printf("Try number: %d\n", try_count);
+	
+	unsigned char* copia;
 
-		write(fd, message_to_send, info_frame_size);
+    copia = messUpBCC1(message_to_send, info_frame_size); 
+    copia = messUpBCC2(message_to_send, info_frame_size); 
+
+		write(fd, copia, info_frame_size);
 
 		flag_alarm_active = FALSE;
 		alarm(TIMEOUT);
@@ -486,7 +524,7 @@ int llwrite(int fd, char *message_to_send, int info_frame_size) {
   return info_frame_size;
 }
 
-void create_data_packet(char *data_packet, char *buffer, int length, int seq) {
+void create_data_packet(unsigned char *data_packet, unsigned char *buffer, int length, int seq) {
   data_packet[0] = DATA_PACKET;
   data_packet[1] = seq % 255;
   data_packet[2] = length / 256; // L2
@@ -494,17 +532,17 @@ void create_data_packet(char *data_packet, char *buffer, int length, int seq) {
   memcpy(data_packet + 4, buffer, length);
 }
 
-int send_file(int fd, char* file_name) {
+int send_file(int fd, unsigned char* file_name) {
 
   FILE *fp;
-  char *control_packet = (char*) malloc(CONTROL_MESSAGE_LEN * sizeof(char));
-  char *data_packet = (char*) malloc((FRAGMENT_SIZE + 4) * sizeof(char));
+  unsigned char *control_packet = (unsigned char*) malloc(CONTROL_MESSAGE_LEN * sizeof(unsigned char));
+  unsigned char *data_packet = (unsigned char*) malloc((FRAGMENT_SIZE + 4) * sizeof(unsigned char));
   int control_packet_len, data_packet_len, bytes_read, end_of_file = FALSE, seq = 0;
-  char buffer[FRAGMENT_SIZE];
+  unsigned char buffer[FRAGMENT_SIZE];
   int bytes_after_framing;
 
   int info_frame_size = FRAGMENT_SIZE + PH_SIZE + FRAME_SIZE;
-  char *message_to_send = (char*) malloc(info_frame_size * sizeof(char));
+  unsigned char *message_to_send = (unsigned char*) malloc(info_frame_size * sizeof(unsigned char));
 
   /* create control packet: START packet */
   printf("File to send: size of %s is %li bytes\n", file_name, fsize(file_name));
@@ -573,7 +611,8 @@ int send_file(int fd, char* file_name) {
   return 0;
 }
 
-int main(int argc, char** argv) {
+
+int main(int argc, unsigned char** argv) {
     int fd;
     //int i, sum = 0, speed = 0;
 

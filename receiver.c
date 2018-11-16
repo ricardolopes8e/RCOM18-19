@@ -3,15 +3,27 @@
 
 #include "data_link_layer.h"
 #include "application_layer.h"
-
+#include <sys/time.h>
 
 volatile int STOP = FALSE;
 struct termios oldtio, newtio;
 int seq_num_to_send = 0;
 int last_seq = 0;
+struct timeval before , after;
 
+double time_diff(struct timeval x , struct timeval y)
+{
+	double x_ms , y_ms , diff;
 
-void print_hexa(char* str)
+	x_ms = (double)x.tv_sec*1000000 + (double)x.tv_usec;
+	y_ms = (double)y.tv_sec*1000000 + (double)y.tv_usec;
+
+	diff = (double)y_ms - (double)x_ms;
+
+	return diff;
+}
+
+void print_hexa(unsigned char* str)
 {
     int j;
     for (j = 0; j < strlen(str); j++) {
@@ -20,7 +32,7 @@ void print_hexa(char* str)
     printf("\n");
 }
 
-void print_hexa_zero(char* str, int len)
+void print_hexa_zero(unsigned char* str, int len)
 {
     int j;
     for (j = 0; j < len; j++) {
@@ -46,8 +58,8 @@ void send_control_message(int fd, int C)
 int read_control_message(int fd, int control_character)
 {
     int state = START;
-    char* buffer = (char*)malloc((SET_SIZE + 1) * sizeof(char));
-    char c;
+    unsigned char* buffer = (unsigned char*)malloc((SET_SIZE + 1) * sizeof(unsigned char));
+    unsigned char c;
     int i = 0;
 
     while (state != STOP_STATE) {
@@ -119,10 +131,10 @@ int read_control_message(int fd, int control_character)
     return TRUE;
 }
 
-int check_BCC2(char* message, int message_len)
+int check_BCC2(unsigned char* message, int message_len)
 {
     int i;
-    char BCC2 = message[4]; /* start from the information, after BCC1 */
+    unsigned char BCC2 = message[4]; /* start from the information, after BCC1 */
 
     for (i = 5; i < message_len - 2; i++) {
         BCC2 ^= message[i];
@@ -130,10 +142,10 @@ int check_BCC2(char* message, int message_len)
     return BCC2 == message[message_len - 2];
 }
 
-int llread(int fd, char* buffer)
+int llread(int fd, unsigned char* buffer)
 {
     int state = START;
-    char c, control_character;
+    unsigned char c, control_character;
     int rej = 0, count_read_char = 0;
 
     while (state != STOP_STATE) {
@@ -204,12 +216,12 @@ int llread(int fd, char* buffer)
                 count_read_char--;
                 buffer[count_read_char - 1] = FLAG;
                 state = BCC_OK;
-            } else if (c == 0x5D) { // 0x7D 0x5D => 0x7D (escape_character)
+            } else if (c == 0x5D) { // 0x7D 0x5D => 0x7D (escape_unsigned character)
                 count_read_char--;
                 buffer[count_read_char - 1] = ESC;
                 state = BCC_OK;
             } else {
-                perror("Invalid character after escape.");
+                perror("Invalid unsigned character after escape.");
                 return ERR;
             }
             break;
@@ -271,11 +283,11 @@ int llopen(int fd, int flag)
     /* set input mode (non-canonical, no echo,...) */
     newtio.c_lflag = 0;
 
-    newtio.c_cc[VTIME] = 1; /* inter-character timer value */
+    newtio.c_cc[VTIME] = 1; /* inter-unsigned character timer value */
     newtio.c_cc[VMIN] = 0; /* The read will be satisfied if a single
-                              character is read, or TIME is exceeded
+                              unsigned character is read, or TIME is exceeded
                               (t = TIME *0.1 s). If TIME is exceeded,
-                              no character will be returned. */
+                              no unsigned character will be returned. */
     tcflush(fd, TCIOFLUSH);
 
     if (tcsetattr(fd, TCSANOW, &newtio) == ERR) {
@@ -293,7 +305,8 @@ int llopen(int fd, int flag)
     }
 
     printf("LLOPEN done!");
-	return fd;
+    gettimeofday(&before , NULL);
+	  return fd;
 }
 
 int llclose(int fd)
@@ -311,11 +324,11 @@ int llclose(int fd)
         printf("Receiver terminated\n");
 
     tcsetattr(fd, TCSANOW, &oldtio);
-	
+
 	return 1;
 }
 
-int is_trailer_message(char* first, int size_first, char* last, int size_last)
+int is_trailer_message(unsigned char* first, int size_first, unsigned char* last, int size_last)
 {
     if (size_first != size_last || last[0] != '3') {
         return FALSE;
@@ -331,7 +344,7 @@ int is_trailer_message(char* first, int size_first, char* last, int size_last)
     return FALSE;
 }
 
-int compare_messages(char* previous, int previous_size, char* new, int size_new)
+int compare_messages(unsigned char* previous, int previous_size, unsigned char* new, int size_new)
 {
     if (previous_size != size_new) {
         return 1;
@@ -347,14 +360,14 @@ int compare_messages(char* previous, int previous_size, char* new, int size_new)
     return 0;
 }
 
-char* remove_header(char* message, char message_size, int* new_size, int* info_len)
+unsigned char* remove_header(unsigned char* message, unsigned char message_size, int* new_size, int* info_len)
 {
 
     /*Remove Header, Frame and Trailer*/
 
     int L1, L2;
 
-    char* new_message = (char*)malloc(message_size);
+    unsigned char* new_message = (unsigned char*)malloc(message_size);
     L2 = message[6];
     L1 = message[7];
     *info_len = L1 + 256 * L2;
@@ -368,7 +381,7 @@ char* remove_header(char* message, char message_size, int* new_size, int* info_l
     return new_message;
 }
 
-void name_file(char* message, char* name)
+void name_file(unsigned char* message, unsigned char* name)
 {
 
     memset(name, 0, 100);
@@ -387,13 +400,13 @@ void name_file(char* message, char* name)
     name[L2] = '\0';
 }
 
-off_t size_of_file(char* message)
+off_t size_of_file(unsigned char* message)
 {
 
     int L1 = message[2] - '0';
     printf("L1: %d\n", L1);
     off_t dec = 0;
-    char* new = (char*)malloc(100 * sizeof(char));
+    unsigned char* new = (unsigned char*)malloc(100 * sizeof(unsigned char));
 
     strncat(new, message + 3, L1);
     new[L1] = '\0';
@@ -420,12 +433,12 @@ void receive_file(int fd)
 
     int compared;
     off_t file_index = 0;
-    char* first_message = (char*)malloc((MAX_DATA_SIZE) * sizeof(char));
-    char* new_message = (char*)malloc((MAX_DATA_SIZE) * sizeof(char));
-    char* message = (char*)malloc((MAX_DATA_SIZE) * sizeof(char));
-    char* previous_message = (char*)malloc((MAX_DATA_SIZE) * sizeof(char));
-    char* message_to_compare = (char*)malloc((MAX_DATA_SIZE) * sizeof(char));
-    char* file_name = (char*)malloc(100 * sizeof(char));
+    unsigned char* first_message = (unsigned char*)malloc((MAX_DATA_SIZE) * sizeof(unsigned char));
+    unsigned char* new_message = (unsigned char*)malloc((MAX_DATA_SIZE) * sizeof(unsigned char));
+    unsigned char* message = (unsigned char*)malloc((MAX_DATA_SIZE) * sizeof(unsigned char));
+    unsigned char* previous_message = (unsigned char*)malloc((MAX_DATA_SIZE) * sizeof(unsigned char));
+    unsigned char* message_to_compare = (unsigned char*)malloc((MAX_DATA_SIZE) * sizeof(unsigned char));
+    unsigned char* file_name = (unsigned char*)malloc(100 * sizeof(unsigned char));
 
     size_first_message = llread(fd, first_message);
 
@@ -467,7 +480,7 @@ void receive_file(int fd)
         if (message_size == 0 || message_size == ERR || compared == 0) {
             if (compared == 0) {
                 printf("Same messages!!!\n");
-				printf("Rejected Message Size: %d", message_size); 
+				        printf("Rejected Message Size: %d", message_size);
             }
             printf("REJECTED PACKAGE\n");
 
@@ -501,10 +514,9 @@ void receive_file(int fd)
     fclose(file_out);
 }
 
-int main(int argc, char** argv)
+int main(int argc, unsigned char** argv)
 {
     int fd;
-
     if ((argc < 2) || ((strcmp("/dev/ttyS0", argv[1]) != 0) && (strcmp("/dev/ttyS1", argv[1]) != 0))) {
         printf("Usage:\tnserial SerialPort\n\tex: nserial /dev/ttyS1\n");
         exit(1);
@@ -524,6 +536,9 @@ int main(int argc, char** argv)
     llopen(fd, RECEIVER);
 
     receive_file(fd);
+
+    gettimeofday(&after , NULL);
+    printf("Total time elapsed : %.0lf us\n" , time_diff(before , after));
 
     llclose(fd);
 
