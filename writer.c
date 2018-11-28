@@ -14,7 +14,7 @@ int flag_alarm_active, count_alarm, received, end_of_UA, contor;
 int seq_num = 0, packet_number = 0;
 unsigned char UA_received[UA_SIZE + 1];
 
- unsigned char *messUpBCC2( unsigned char *packet, int sizePacket)
+ unsigned char *change_BCC2( unsigned char *packet, int sizePacket)
 {
    unsigned char *copia = ( unsigned char *)malloc(sizePacket);
   memcpy(copia, packet, sizePacket);
@@ -29,7 +29,7 @@ unsigned char UA_received[UA_SIZE + 1];
   return copia;
 }
 
- unsigned char *messUpBCC1( unsigned char *packet, int sizePacket)
+ unsigned char *change_BCC1( unsigned char *packet, int sizePacket)
 {
    unsigned char *copia = ( unsigned char *)malloc(sizePacket);
   memcpy(copia, packet, sizePacket);
@@ -475,8 +475,8 @@ int llwrite(int fd, unsigned char *message_to_send, int info_frame_size) {
 	
 	unsigned char* copia;
 
-    copia = messUpBCC1(message_to_send, info_frame_size); 
-    copia = messUpBCC2(message_to_send, info_frame_size); 
+    copia = change_BCC1(message_to_send, info_frame_size); 
+    copia = change_BCC2(message_to_send, info_frame_size); 
 
 		write(fd, copia, info_frame_size);
 
