@@ -9,4 +9,4 @@ route add default gw 172.16.21.254
 echo 1 > /proc/sys/net/ipv4/conf/eth0/accept_redirects
 echo 1 > /proc/sys/net/ipv4/conf/all/accept_redirects
 
-chmod +x 7-ana-joao-ricardo-2
+chmod +x 7-ana-joao-ricardo_2
